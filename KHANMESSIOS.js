@@ -2,7 +2,7 @@
     "use strict";
 
     if (window.KHANMESSIAS_RUNNING) {
-        alert("KhanMESSIAS já está ativo");
+        alert("KhanMESSIAS já está ativo no navegador");
         return;
     }
     window.KHANMESSIAS_RUNNING = true;
@@ -12,33 +12,44 @@
         diagnosticMode: true
     };
 
+    // Estilos da interface e destaques na página
     const style = document.createElement("style");
     style.textContent = `
         #km-button {
             position: fixed; right: 20px; bottom: 20px; width: 60px; height: 60px;
             border-radius: 50%; border: none; background: #171717; color: white;
             font-size: 28px; z-index: 999999; cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: transform 0.2s ease;
         }
+        #km-button:hover { transform: scale(1.08); }
         #km-menu {
-            position: fixed; right: 20px; bottom: 90px; width: 290px; background: #1e1e1e;
-            color: white; padding: 15px; border-radius: 15px; display: none;
+            position: fixed; right: 20px; bottom: 90px; width: 310px; background: #18181b;
+            color: #f4f4f5; padding: 16px; border-radius: 16px; display: none;
             z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.6); border: 1px solid #333;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.7); border: 1px solid #27272a;
         }
         .km-btn {
             width: 100%; padding: 12px; margin-top: 10px; border: none;
-            border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px;
-            transition: background 0.2s;
+            border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 14px;
+            transition: all 0.2s ease;
         }
         #km-resposta {
-            margin-top: 15px; padding: 12px; background: #2a2a2a; border-radius: 8px;
-            color: #00ff66; font-size: 13px; display: none; word-wrap: break-word;
-            max-height: 280px; overflow-y: auto; border: 1px solid #444;
+            margin-top: 15px; padding: 12px; background: #09090b; border-radius: 10px;
+            color: #4ade80; font-size: 13px; display: none; word-wrap: break-word;
+            max-height: 320px; overflow-y: auto; border: 1px solid #22c55e33;
         }
         .km-meta-info {
-            font-size: 11px; color: #aaa; margin-top: 8px; border-top: 1px solid #444; padding-top: 6px;
+            font-size: 11px; color: #a1a1aa; margin-top: 8px; border-top: 1px solid #27272a; padding-top: 6px;
             line-height: 1.4;
+        }
+        /* Classe CSS para destacar a alternativa correta na página */
+        .km-correta-highlight {
+            border: 3px solid #22c55e !important;
+            background-color: rgba(34, 197, 94, 0.15) !important;
+            box-shadow: 0 0 15px rgba(34, 197, 94, 0.4) !important;
+            border-radius: 8px !important;
+            transition: all 0.3s ease !important;
         }
     `;
     document.head.appendChild(style);
@@ -50,8 +61,8 @@
     const menu = document.createElement("div");
     menu.id = "km-menu";
     menu.innerHTML = `
-        <h3 style="margin: 0 0 10px 0; text-align: center; color: #fff;">KhanMESSIAS</h3>
-        <button class="km-btn" id="analisar" style="background:#333; color:#fff;">Analisar página 100% OFF</button>
+        <h3 style="margin: 0 0 12px 0; text-align: center; color: #fff; font-size: 18px;">KhanMESSIAS v3.0</h3>
+        <button class="km-btn" id="analisar" style="background:#27272a; color:#fff;">Analisar página 100% OFF</button>
         <div id="extra"></div>
         <div id="km-resposta"></div>
     `;
@@ -64,7 +75,7 @@
     };
 
     // =========================================================================
-    // === SISTEMA DE NORMALIZAÇÃO E EXTRAÇÃO SEMÂNTICA (WEB & MOBILE)        ===
+    // === CAMADA 2 & 3: NORMALIZAÇÃO MATEMÁTICA E LEITURA ESTRUTURAL        ===
     // =========================================================================
 
     const mathNormalizer = {
@@ -105,7 +116,7 @@
         if (['script', 'style', 'noscript', 'template'].includes(tagName)) return "";
         if (node.id === "km-menu" || node.id === "km-button") return "";
 
-        // Evita duplicar fórmulas KaTeX geradas em HTML e MathML simultaneamente
+        // Evita duplicidade entre versão HTML renderizada e MathML no KaTeX
         if (node.classList && node.classList.contains('katex-html') && node.parentElement && node.parentElement.querySelector('.katex-mathml')) {
             return "";
         }
@@ -135,7 +146,7 @@
     function extractSemanticContent(elemento) {
         if (!elemento) return "";
 
-        // 1. Atributos de acessibilidade
+        // 1. Acessibilidade explícita
         const ariaLabel = elemento.getAttribute("aria-label") || 
                           elemento.getAttribute("aria-description") || 
                           elemento.getAttribute("title") || 
@@ -144,7 +155,7 @@
             return mathNormalizer.clean(ariaLabel);
         }
 
-        // 2. Anotações LaTeX embutidas (KaTeX / Khan Academy Perseus)
+        // 2. Anotações LaTeX embutidas (KaTeX / MathML / Data Attributes)
         const texAnnotations = elemento.querySelectorAll('annotation[encoding*="tex"], .katex-mathml annotation, [data-latex]');
         if (texAnnotations.length > 0) {
             const list = Array.from(texAnnotations)
@@ -155,7 +166,7 @@
             }
         }
 
-        // 3. MathML Nativo
+        // 3. MathML Nativo (<math>)
         const mathNodes = elemento.querySelectorAll('math');
         if (mathNodes.length > 0) {
             const mathTexts = Array.from(mathNodes).map(m => {
@@ -167,13 +178,13 @@
             }
         }
 
-        // 4. Elementos SVG
+        // 4. Elementos gráficos SVG
         if (elemento.tagName.toLowerCase() === 'svg' || (elemento.querySelectorAll('svg').length > 0 && !elemento.innerText.trim())) {
             const svgText = parseSVGElement(elemento);
             if (svgText) return mathNormalizer.clean(svgText);
         }
 
-        // 5. Varredura recursiva de nós
+        // 5. Reconstrução estrutural recursiva
         const structuralText = reconstructStructuralText(elemento);
         if (structuralText.trim().length > 0) {
             return mathNormalizer.clean(structuralText);
@@ -183,7 +194,7 @@
     }
 
     // =========================================================================
-    // === PROCESSADORES DE GRÁFICOS, SVGs E IMAGENS                            ===
+    // === CAMADA 5 & 6: ANÁLISE DE GRÁFICOS, SVGs, CANVAS E IMAGENS           ===
     // =========================================================================
 
     function parseSVGElement(container) {
@@ -228,7 +239,7 @@
         return canvases.map((canvas, idx) => {
             const aria = canvas.getAttribute('aria-label') || canvas.getAttribute('title') || canvas.getAttribute('role');
             const parentText = canvas.parentElement ? canvas.parentElement.getAttribute('aria-label') : '';
-            return `[Canvas #${idx + 1}: ${aria || parentText || 'Sem descrição'}]`;
+            return `[Canvas #${idx + 1}: ${aria || parentText || 'Elemento gráfico Canvas'}]`;
         });
     }
 
@@ -244,7 +255,7 @@
     }
 
     // =========================================================================
-    // === DETECÇÃO DE REGIÃO DA QUESTÃO E ALTERNATIVAS (AMPLIADO KHAN)        ===
+    // === CAMADA 1, 4 & 7: MAPEAMENTO DE QUESTÃO E ALTERNATIVAS UNIVERSAIS   ===
     // =========================================================================
 
     function findQuestionContainer() {
@@ -254,6 +265,8 @@
             document.querySelector('.perseus-renderer'),
             document.querySelector('.framework-content'),
             document.querySelector('[data-testid="perseus-renderer"]'),
+            document.querySelector('.question-container'),
+            document.querySelector('.question'),
             document.querySelector('main'),
             document.querySelector('[role="main"]'),
             document.querySelector('article')
@@ -270,7 +283,7 @@
             const tamTexto = (el.innerText || '').length;
             const pontuacao = tamTexto + (qtdOpcoes * 150);
 
-            if (pontuacao > maxPontuacao && tamTexto < 15000) {
+            if (pontuacao > maxPontuacao && tamTexto < 20000) {
                 maxPontuacao = pontuacao;
                 melhorContainer = el;
             }
@@ -280,7 +293,6 @@
     }
 
     function detectAlternatives(container) {
-        // Seletores ampliados para Khan Academy Mobile, Web e Perseus Engine
         const seletores = [
             '[data-testid*="perseus-radio-option"]',
             '[data-testid*="radio-option"]',
@@ -304,15 +316,16 @@
         let elementos = Array.from(container.querySelectorAll(seletores.join(', ')))
             .filter(el => !menu.contains(el) && el.id !== 'km-button');
 
-        // Fallback de contingência para listas sem seletores declarados
+        // Fallback para listas sem atributos específicos
         if (elementos.length === 0) {
             elementos = Array.from(container.querySelectorAll('li, div[class*="choice"]'))
-                .filter(el => !menu.contains(el) && el.innerText && el.innerText.length > 0 && el.innerText.length < 500);
+                .filter(el => !menu.contains(el) && el.innerText && el.innerText.length > 0 && el.innerText.length < 600);
         }
 
         const alternativas = [];
         const textosVistos = new Set();
-        const botoesIgnorados = ['Analisar página', 'Obter Resposta', 'Verificar', 'Enviar', 'Próxima pergunta', 'Pular', 'Dica', 'Ajuda'];
+        const botoesIgnorados = ['Analisar página', 'Obter Resposta', 'Verificar', 'Enviar', 'Próxima pergunta', 'Pular', 'Dica', 'Ajuda', 'Próxima'];
+        const letras = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 
         elementos.forEach((el) => {
             const textoNormalizado = extractSemanticContent(el);
@@ -324,11 +337,13 @@
                 !botoesIgnorados.some(b => textoNormalizado.toLowerCase().includes(b.toLowerCase()))
             ) {
                 textosVistos.add(textoNormalizado);
+                const idx = alternativas.length;
                 alternativas.push({
+                    letra: letras[idx] || `${idx + 1}`,
                     texto: textoNormalizado,
                     elemento: el,
                     tipo: el.getAttribute('role') || el.tagName.toLowerCase(),
-                    indice: alternativas.length
+                    indice: idx
                 });
             }
         });
@@ -338,7 +353,6 @@
 
     function analyzePageStructure() {
         const container = findQuestionContainer();
-
         const alternativas = detectAlternatives(container);
 
         const elementosMath = Array.from(container.querySelectorAll('.katex, math, .MathJax, [data-latex]'))
@@ -347,9 +361,9 @@
 
         const graficosSVG = parseSVGElement(container);
         const graficosCanvas = parseCanvasElements(container);
-
         const imagens = parseImageElements(container);
 
+        // Clona para isolar o texto do enunciado sem poluição das alternativas
         const cloneContainer = container.cloneNode(true);
         alternativas.forEach(alt => {
             const correspondente = cloneContainer.querySelector(`[role="${alt.tipo}"]`) || cloneContainer;
@@ -367,7 +381,7 @@
             matematica: [...new Set(elementosMath)],
             graficos: [graficosSVG, ...graficosCanvas].filter(Boolean),
             imagens: imagens,
-            qualidadeLeitura: alternativas.length > 0 ? "Alta" : "Média (Lendo texto corrido)"
+            qualidadeLeitura: alternativas.length > 0 ? "Alta" : "Média (Modo de contingência)"
         };
     }
 
@@ -380,7 +394,7 @@
             console.log("Nenhuma alternativa identificada explicitamente por seletores.");
         } else {
             analise.alternativas.forEach(alt => {
-                console.log(`[${alt.indice}] %c${alt.texto}%c (Tipo: ${alt.tipo})`, "color: #fff; font-weight: bold;", "color: #888;");
+                console.log(`[Opção ${alt.letra}] %c${alt.texto}%c (Tipo: ${alt.tipo})`, "color: #fff; font-weight: bold;", "color: #888;");
             });
         }
         console.groupEnd();
@@ -393,11 +407,31 @@
     }
 
     // =========================================================================
+    // === DESTAQUE E SELEÇÃO DA ALTERNATIVA CORRETA NA PÁGINA                ===
+    // =========================================================================
+
+    function destacarAlternativaCorreta(alternativaObjeto) {
+        if (!alternativaObjeto || !alternativaObjeto.elemento) return;
+
+        // Remove destaques anteriores se houver
+        document.querySelectorAll('.km-correta-highlight').forEach(el => {
+            el.classList.remove('km-correta-highlight');
+        });
+
+        // Aplica o destaque no elemento da página
+        const el = alternativaObjeto.elemento;
+        el.classList.add('km-correta-highlight');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // =========================================================================
+    // === PROCESSADOR DE IA (POLLINATIONS) COM RESPOSTA ESTRUTURADA           ===
+    // =========================================================================
 
     async function obterRespostaSemKey(textoDaPagina) {
         const respostaDiv = document.querySelector("#km-resposta");
         respostaDiv.style.display = "block";
-        respostaDiv.textContent = "⏳ Analisando estrutura profunda da página...";
+        respostaDiv.textContent = "⏳ Analisando questão e alternativas...";
 
         try {
             const analise = analyzePageStructure();
@@ -409,17 +443,17 @@
             let blocoPrompt = `ENUNCIADO DA QUESTÃO:\n${analise.enunciado}\n\n`;
 
             if (analise.alternativas.length > 0) {
-                blocoPrompt += `ALTERNATIVAS:\n` + analise.alternativas.map(a => `[Opção ${a.indice + 1}]: ${a.texto}`).join('\n') + `\n\n`;
+                blocoPrompt += `ALTERNATIVAS DISPONÍVEIS:\n` + analise.alternativas.map(a => `[${a.letra}]: ${a.texto}`).join('\n') + `\n\n`;
             } else {
-                blocoPrompt += `TEXTO BRUTO DA PÁGINA:\n${textoDaPagina.slice(0, 2000)}\n\n`;
+                blocoPrompt += `TEXTO DA PÁGINA:\n${textoDaPagina.slice(0, 2000)}\n\n`;
             }
 
             if (analise.matematica.length > 0) {
-                blocoPrompt += `EXPRESSÕES MATEMÁTICAS:\n` + analise.matematica.join(' | ') + `\n\n`;
+                blocoPrompt += `EXPRESSÕES MATEMÁTICAS RECONSTRUÍDAS:\n` + analise.matematica.join(' | ') + `\n\n`;
             }
 
             if (analise.graficos.length > 0) {
-                blocoPrompt += `GRÁFICOS/SVG:\n` + analise.graficos.join('\n') + `\n\n`;
+                blocoPrompt += `GRÁFICOS/SVG DETECTADOS:\n` + analise.graficos.join('\n') + `\n\n`;
             }
 
             if (analise.imagens.length > 0) {
@@ -437,7 +471,13 @@
                     messages: [
                         {
                             role: "system",
-                            content: "Você é um resolvedor de questões altamente preciso. Analise a questão e as alternativas fornecidas. Retorne APENAS A RESPOSTA FINAL (ex: a letra da alternativa correta ou o valor exato). Não dê explicações, nem saudações."
+                            content: `Você é um resolvedor de questões acadêmicas de exatas e humanas extremamente preciso.
+Sua missão é determinar qual alternativa é a correta.
+Responda EXATAMENTE neste formato estrito:
+
+LETRA: [Letra da Alternativa ex: A, B, C, D ou E]
+TEXTO: [Texto exato da alternativa correta]
+EXPLICAÇÃO: [Uma frase direta justificando a resposta]`
                         },
                         {
                             role: "user",
@@ -449,21 +489,49 @@
             });
 
             if (!response.ok) {
-                throw new Error("Erro na conexão com o servidor de IA: " + response.status);
+                throw new Error("Erro na conexão com o servidor: " + response.status);
             }
 
             const resultadoTexto = await response.text();
 
             if (resultadoTexto) {
+                // Tenta extrair a letra da alternativa retornada pela I.A.
+                const matchLetra = resultadoTexto.match(/LETRA:\s*([A-GEa-g])/i) || resultadoTexto.match(/^([A-GEa-g])[\).\s]/);
+                let letraCorreta = matchLetra ? matchLetra[1].toUpperCase() : null;
+
+                let alternativaEncontrada = null;
+
+                if (letraCorreta && analise.alternativas.length > 0) {
+                    alternativaEncontrada = analise.alternativas.find(a => a.letra === letraCorreta);
+                }
+
+                // Fallback de busca por texto caso a letra não bata diretamente
+                if (!alternativaEncontrada && analise.alternativas.length > 0) {
+                    alternativaEncontrada = analise.alternativas.find(a => 
+                        resultadoTexto.toLowerCase().includes(a.texto.toLowerCase())
+                    );
+                    if (alternativaEncontrada) letraCorreta = alternativaEncontrada.letra;
+                }
+
+                // Se identificou a alternativa, destaca na página
+                if (alternativaEncontrada) {
+                    destacarAlternativaCorreta(alternativaEncontrada);
+                }
+
                 respostaDiv.innerHTML = `
-                    🎯 <b>Resposta:</b><br>${resultadoTexto.trim().replace(/\n/g, "<br>")}
+                    <div style="font-size: 16px; font-weight: bold; color: #22c55e; margin-bottom: 6px;">
+                        🎯 Resposta Correta: ${letraCorreta ? `Opção ${letraCorreta}` : 'Identificada'}
+                    </div>
+                    <div style="color: #f4f4f5; margin-bottom: 8px;">
+                        ${resultadoTexto.replace(/\n/g, "<br>")}
+                    </div>
                     <div class="km-meta-info">
-                        Leitura: ${analise.qualidadeLeitura} | Alternativas encontradas: ${analise.alternativas.length}<br>
-                        <i>(Detalhes no Console F12)</i>
+                        Status: Alternativa destacada na tela!<br>
+                        Leitura: ${analise.qualidadeLeitura} | Opções lidas: ${analise.alternativas.length}
                     </div>
                 `;
             } else {
-                throw new Error("Nenhuma resposta foi gerada.");
+                throw new Error("Nenhuma resposta gerada.");
             }
 
         } catch (error) {
@@ -483,8 +551,8 @@
             btn.style.color = "#000";
 
             extra.innerHTML = `
-                <button class="km-btn" id="questao" style="background:#28a745; color:#fff;">
-                    Obter Resposta (Sem API Key)
+                <button class="km-btn" id="questao" style="background:#22c55e; color:#000;">
+                    Obter Resposta e Destacar
                 </button>
             `;
 
@@ -495,8 +563,8 @@
 
         } else {
             btn.textContent = "Analisar página 100% OFF";
-            btn.style.background = "";
-            btn.style.color = "";
+            btn.style.background = "#27272a";
+            btn.style.color = "#fff";
             extra.innerHTML = "";
             respostaDiv.style.display = "none";
         }
