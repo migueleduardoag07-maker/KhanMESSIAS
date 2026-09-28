@@ -1,173 +1,212 @@
 (() => {
     "use strict";
 
-    // 1. Prevenir duplicação
     if (window.KHANMESSIAS_RUNNING) {
-        alert("KhanMESSIAS já está ativo. Feche a página ou recarregue para reiniciar.");
+        alert("KhanMESSIAS já está ativo. Recarregue a página para reiniciar.");
         return;
     }
     window.KHANMESSIAS_RUNNING = true;
 
-    // 2. Injetar Estilos Modernos
+    // ==========================================
+    // 1. INTERFACE GRÁFICA (UI)
+    // ==========================================
     const style = document.createElement("style");
     style.textContent = `
         #km-panel {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
-            width: 90%; max-width: 380px; background: rgba(20, 20, 20, 0.95);
+            width: 90%; max-width: 420px; background: rgba(15, 15, 15, 0.95);
             backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px;
             padding: 25px; color: #fff; font-family: -apple-system, sans-serif;
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6); z-index: 9999999;
-            display: none; flex-direction: column; gap: 15px;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); opacity: 0;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8); z-index: 9999999;
+            display: none; flex-direction: column; gap: 15px; opacity: 0;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-height: 80vh; overflow-y: auto;
         }
         #km-panel.show { display: flex; opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        #km-title { font-size: 18px; font-weight: 700; text-align: center; color: #a777e3; margin-bottom: 5px; }
+        #km-title { font-size: 18px; font-weight: 700; text-align: center; color: #4facfe; margin-bottom: 5px; }
         .km-btn {
-            width: 100%; padding: 14px; border: none; border-radius: 12px;
-            background: linear-gradient(135deg, #6e8efb, #a777e3); color: white;
-            font-weight: 700; font-size: 16px; cursor: pointer; transition: all 0.2s;
+            width: 100%; padding: 14px; border: none; border-radius: 10px;
+            background: linear-gradient(135deg, #00f2fe, #4facfe); color: #000;
+            font-weight: 800; font-size: 15px; cursor: pointer; transition: 0.2s;
         }
         .km-btn:active { transform: scale(0.97); }
-        .km-btn-secondary { background: #333; border: 1px solid #555; margin-top: 10px; }
-        #km-result {
-            background: rgba(0, 0, 0, 0.4); border-radius: 12px; padding: 15px;
-            font-size: 14px; line-height: 1.6; display: none; border-left: 4px solid #a777e3;
+        .km-log {
+            background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px;
+            font-family: monospace; font-size: 11px; color: #00ff00;
+            word-wrap: break-word; white-space: pre-wrap; max-height: 100px; overflow-y: auto;
         }
-        #km-result strong { color: #a777e3; font-size: 16px;}
+        #km-result {
+            background: rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 15px;
+            font-size: 14px; line-height: 1.5; display: none; border-left: 4px solid #4facfe;
+        }
         #km-close {
             position: absolute; top: 15px; right: 15px; background: none; border: none;
             color: #888; font-size: 24px; cursor: pointer;
         }
-        .km-loading { display: none; text-align: center; font-size: 14px; color: #aaa; }
-        
-        /* Estilos para o formulário manual */
-        .km-input-group { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-        .km-input-group label { font-size: 12px; color: #ccc; }
-        .km-input-group input {
-            width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #444;
-            background: rgba(0,0,0,0.5); color: #fff; font-size: 14px; box-sizing: border-box;
-        }
     `;
     document.head.appendChild(style);
 
-    // 3. Criar Painel HTML
     const panel = document.createElement("div");
     panel.id = "km-panel";
     panel.innerHTML = `
         <button id="km-close">×</button>
-        <div id="km-title">🍷 KhanMESSIAS</div>
-        <button class="km-btn" id="km-analyze">Analisar e Resolver</button>
-        <div class="km-loading" id="km-loading">Escaneando o DOM...</div>
+        <div id="km-title">🤖 KhanMESSIAS v2.0 (Automated)</div>
+        <button class="km-btn" id="km-analyze">Escanear Tudo e Resolver</button>
+        <div id="km-log-container" style="display:none;">
+            <div style="font-size:12px; color:#aaa; margin-bottom:5px;">🔍 Log de Varredura:</div>
+            <div class="km-log" id="km-log"></div>
+        </div>
         <div id="km-result"></div>
     `;
     document.body.appendChild(panel);
 
-    // 4. Botão Flutuante
     const btnFlutuante = document.createElement("button");
-    btnFlutuante.textContent = "🍷";
+    btnFlutuante.textContent = "🤖";
     btnFlutuante.style.cssText = `
         position: fixed; right: 20px; bottom: 20px; width: 60px; height: 60px;
-        border-radius: 50%; border: none; background: #171717; color: white;
-        font-size: 28px; z-index: 9999998; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-        display: flex; align-items: center; justify-content: center;
+        border-radius: 50%; border: none; background: #000; color: white;
+        font-size: 28px; z-index: 9999998; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+        border: 2px solid #4facfe; display: flex; align-items: center; justify-content: center;
     `;
     btnFlutuante.onclick = () => panel.classList.add("show");
     document.body.appendChild(btnFlutuante);
-
     document.getElementById("km-close").onclick = () => panel.classList.remove("show");
 
-    // Lógica Matemática Principal
-    const executarCalculo = (pEco, pConf, pLuxo, pacotes, arrecadado) => {
-        const resultDiv = document.getElementById("km-result");
+    // ==========================================
+    // 2. MOTOR DE VARREDURA (DOM SCRAPER)
+    // ==========================================
+    const escanearPagina = () => {
+        let textoCompleto = document.body.innerText || "";
         
-        // Regra de negócio assumida: Conforto (C) = 2 * Luxo (L)
-        const denominador = (2 * pConf) + pLuxo - (3 * pEco);
-        const numerador = arrecadado - (pEco * pacotes);
-        
-        let L = Math.round(numerador / denominador);
-        let C = Math.round(2 * L);
-        let E = Math.round(pacotes - 3 * L);
+        // Extrair textos escondidos dentro de fórmulas matemáticas (KaTeX)
+        document.querySelectorAll('.katex-mathml annotation').forEach(el => {
+            textoCompleto += " " + el.textContent;
+        });
 
-        resultDiv.innerHTML = `
-            <strong>✅ Resolvido!</strong><br><br>
-            🧮 <b>Cálculo Extraído:</b><br>
-            Econômico: R$${pEco} (${E} un.)<br>
-            Conforto: R$${pConf} (${C} un.)<br>
-            Luxo: R$${pLuxo} (${L} un.)<br><br>
-            🎯 <b>Resposta:</b> Foram vendidos <b>${C}</b> pacotes conforto.
-        `;
-        resultDiv.style.display = "block";
+        // Extrair atributos ALT de imagens (muitas vezes contém dados vitais da questão)
+        let dadosImagens = [];
+        document.querySelectorAll('img').forEach(img => {
+            if (img.alt) dadosImagens.push(img.alt);
+        });
+
+        const url = window.location.href;
+
+        // Normalização agressiva (remove espaços duplos e quebras)
+        const textoNormalizado = (textoCompleto + " " + dadosImagens.join(" ")).replace(/\s+/g, ' ').toLowerCase();
+
+        return { texto: textoNormalizado, url: url, imagens: dadosImagens };
     };
 
-    // 5. Lógica de Extração
-    document.getElementById("km-analyze").onclick = () => {
-        const resultDiv = document.getElementById("km-result");
-        const loadingDiv = document.getElementById("km-loading");
-        const btnAnalyze = document.getElementById("km-analyze");
-        
-        resultDiv.style.display = "none";
-        loadingDiv.style.display = "block";
-        btnAnalyze.style.display = "none";
+    const parseVal = (regex, texto) => {
+        const match = texto.match(regex);
+        return match ? parseFloat(match[1].replace(/\./g, '').replace(',', '.')) : null;
+    };
 
-        setTimeout(() => {
-            const rawText = document.body.innerText || "";
-            const texto = rawText.replace(/\s+/g, ' ');
+    // ==========================================
+    // 3. BANCO DE DADOS DE RESOLUÇÕES (VERSATILIDADE)
+    // ==========================================
+    // Aqui você adiciona novas lógicas para tipos diferentes de questões.
+    const Solucionadores = [
+        {
+            nome: "Sistema: Pacotes de Viagem (Econômico, Conforto, Luxo)",
+            // Condição para ativar esta lógica (se estas palavras estiverem na tela)
+            identificar: (dados) => dados.texto.includes("pacote econômico") && dados.texto.includes("luxo"),
+            resolver: (dados) => {
+                const txt = dados.texto;
+                const pEco = parseVal(/econ[ôo]mico.*?r\$\s*([\d\.,]+)/, txt);
+                const pConf = parseVal(/conforto.*?r\$\s*([\d\.,]+)/, txt);
+                const pLuxo = parseVal(/luxo.*?r\$\s*([\d\.,]+)/, txt);
+                const totalArrecadado = parseVal(/arrecadad[oa]s?.*?r\$\s*([\d\.,]+)/, txt);
+                
+                const matchPacotes = txt.match(/vendidos.*?(\d+).*?pacotes/) || txt.match(/(\d+)\s+pacotes/);
+                const pacotes = matchPacotes ? parseInt(matchPacotes[1]) : null;
 
-            // Regex muito mais flexível (o .*? ignora span e sujeiras do DOM entre a palavra e o valor)
-            const parseVal = (regex) => {
-                const match = texto.match(regex);
-                return match ? parseFloat(match[1].replace(/\./g, '').replace(',', '.')) : null;
-            };
+                if (!pEco || !pConf || !pLuxo || !pacotes || !totalArrecadado) {
+                    return { sucesso: false, erro: "Valores incompletos para esta fórmula." };
+                }
 
-            let precoEco = parseVal(/econ[ôo]mico.*?R\$\s*([\d\.,]+)/i);
-            let precoConf = parseVal(/conforto.*?R\$\s*([\d\.,]+)/i);
-            let precoLuxo = parseVal(/luxo.*?R\$\s*([\d\.,]+)/i);
-            let totalArrecadado = parseVal(/arrecadad[oa]s?.*?R\$\s*([\d\.,]+)/i);
-            
-            const matchPacotes = texto.match(/vendidos.*?(\d+).*?pacotes/i) || texto.match(/(\d+)\s+pacotes/i);
-            let totalPacotes = matchPacotes ? parseInt(matchPacotes[1]) : null;
+                const denominador = (2 * pConf) + pLuxo - (3 * pEco);
+                const numerador = totalArrecadado - (pEco * pacotes);
+                
+                const L = Math.round(numerador / denominador);
+                const C = Math.round(2 * L);
+                const E = Math.round(pacotes - 3 * L);
 
-            loadingDiv.style.display = "none";
-
-            // Se encontrou tudo, resolve direto
-            if (precoEco && precoConf && precoLuxo && totalPacotes && totalArrecadado) {
-                executarCalculo(precoEco, precoConf, precoLuxo, totalPacotes, totalArrecadado);
-                btnAnalyze.style.display = "block";
-                btnAnalyze.textContent = "Analisar Novamente";
-            } else {
-                // Se falhou, injeta formulário moderno sem usar `prompt()`
-                resultDiv.style.display = "block";
-                resultDiv.style.borderLeft = "4px solid #ff9800";
-                resultDiv.innerHTML = `
-                    <div style="color: #ff9800; font-weight: bold; margin-bottom: 10px;">⚠️ Extração falhou. Insira os dados:</div>
-                    <div class="km-input-group">
-                        <input type="number" id="in-eco" placeholder="Preço Econômico (ex: 800)" value="${precoEco || ''}">
-                        <input type="number" id="in-conf" placeholder="Preço Conforto (ex: 1200)" value="${precoConf || ''}">
-                        <input type="number" id="in-luxo" placeholder="Preço Luxo (ex: 2000)" value="${precoLuxo || ''}">
-                        <input type="number" id="in-pacotes" placeholder="Total de Pacotes (ex: 60)" value="${totalPacotes || ''}">
-                        <input type="number" id="in-arrecadado" placeholder="Total Arrecadado (ex: 72000)" value="${totalArrecadado || ''}">
-                        <button class="km-btn km-btn-secondary" id="km-manual-calc">Calcular Manualmente</button>
-                    </div>
-                `;
-
-                document.getElementById("km-manual-calc").onclick = () => {
-                    const e = parseFloat(document.getElementById("in-eco").value);
-                    const c = parseFloat(document.getElementById("in-conf").value);
-                    const l = parseFloat(document.getElementById("in-luxo").value);
-                    const p = parseFloat(document.getElementById("in-pacotes").value);
-                    const a = parseFloat(document.getElementById("in-arrecadado").value);
-
-                    if(e && c && l && p && a) {
-                        resultDiv.style.borderLeft = "4px solid #a777e3";
-                        executarCalculo(e, c, l, p, a);
-                        btnAnalyze.style.display = "block";
-                        btnAnalyze.textContent = "Nova Análise";
-                    } else {
-                        alert("Preencha todos os campos corretamente.");
-                    }
+                return {
+                    sucesso: true,
+                    resposta: `Foram vendidos <b>${C}</b> pacotes conforto.`,
+                    detalhes: `E=${E}, C=${C}, L=${L} | Total Arrecadado: R$${totalArrecadado}`
                 };
             }
-        }, 600);
+        },
+        {
+            nome: "Teorema de Pitágoras Básico (Exemplo de Versatilidade)",
+            identificar: (dados) => dados.texto.includes("hipotenusa") && dados.texto.includes("cateto"),
+            resolver: (dados) => {
+                // Regex genérico para pegar números próximos à palavra cateto
+                const catetos = [...dados.texto.matchAll(/cateto.*?(\d+)/g)].map(m => parseFloat(m[1]));
+                if (catetos.length >= 2) {
+                    const hipotenusa = Math.sqrt((catetos[0]**2) + (catetos[1]**2));
+                    return { sucesso: true, resposta: `A hipotenusa é <b>${hipotenusa.toFixed(2)}</b>`, detalhes: `Catetos: ${catetos[0]} e ${catetos[1]}` };
+                }
+                return { sucesso: false, erro: "Não localizei os dois catetos." };
+            }
+        }
+        // ADICIONE NOVOS BLOCOS AQUI conforme encontra novos tipos de questões
+    ];
+
+    // ==========================================
+    // 4. CONTROLADOR PRINCIPAL
+    // ==========================================
+    document.getElementById("km-analyze").onclick = () => {
+        const resultDiv = document.getElementById("km-result");
+        const logContainer = document.getElementById("km-log-container");
+        const logDiv = document.getElementById("km-log");
+        
+        logContainer.style.display = "block";
+        resultDiv.style.display = "none";
+        logDiv.innerHTML = "Escanando URL, Imagens e Elementos Ocultos...\n";
+
+        setTimeout(() => {
+            const dadosPagina = escanearPagina();
+            logDiv.innerHTML += `URL: ${dadosPagina.url.substring(0, 40)}...\n`;
+            logDiv.innerHTML += `Caracteres lidos: ${dadosPagina.texto.length}\n`;
+            logDiv.innerHTML += `Imagens lidas: ${dadosPagina.imagens.length}\n`;
+            
+            let questaoIdentificada = false;
+
+            // Testa a página contra todos os solucionadores cadastrados
+            for (let solucionador of Solucionadores) {
+                if (solucionador.identificar(dadosPagina)) {
+                    questaoIdentificada = true;
+                    logDiv.innerHTML += `\n>> Padrão Detectado: [${solucionador.nome}]`;
+                    
+                    const resultado = solucionador.resolver(dadosPagina);
+                    
+                    resultDiv.style.display = "block";
+                    if (resultado.sucesso) {
+                        resultDiv.style.borderLeft = "4px solid #00ff00";
+                        resultDiv.innerHTML = `
+                            <strong>✅ Questão Resolvida!</strong><br><br>
+                            🧠 <b>Lógica:</b> ${solucionador.nome}<br>
+                            📊 <b>Extraído:</b> ${resultado.detalhes}<br><br>
+                            🎯 <b>Resposta:</b><br><span style="font-size:18px;">${resultado.resposta}</span>
+                        `;
+                    } else {
+                        resultDiv.style.borderLeft = "4px solid #ff9800";
+                        resultDiv.innerHTML = `⚠️ Padrão reconhecido, mas falhou na extração: ${resultado.erro}`;
+                    }
+                    break; // Para no primeiro padrão encontrado
+                }
+            }
+
+            if (!questaoIdentificada) {
+                resultDiv.style.display = "block";
+                resultDiv.style.borderLeft = "4px solid #ff3333";
+                resultDiv.innerHTML = `❌ <b>Nenhum padrão conhecido encontrado.</b><br>O script leu a página, mas não sabe qual fórmula aplicar para este texto. Adicione esta questão ao banco de dados interno do script.`;
+            }
+        }, 800);
     };
+
 })();
