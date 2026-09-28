@@ -11,6 +11,12 @@
         analyzing: false
     };
 
+    // Chave de API do Gemini configurada automaticamente
+    const DEFAULT_API_KEY = "AQ.Ab8RN6JocWJTYdwgPxzd6SNEHXJQSL5_HRCZhTvQoah6yyZRPQ";
+    if (!localStorage.getItem("km_gemini_api_key")) {
+        localStorage.setItem("km_gemini_api_key", DEFAULT_API_KEY);
+    }
+
     const style = document.createElement("style");
     style.textContent = `
         #km-button {
@@ -54,60 +60,64 @@
         menu.style.display = menu.style.display === "block" ? "none" : "block";
     };
 
-    // Função central que conecta com a I.A (OpenAI)
-    async function obterRespostaIA(textoDaPagina) {
-        let apiKey = localStorage.getItem("km_api_key");
-        if (!apiKey) {
-            apiKey = prompt("Insira sua chave de API da OpenAI (ChatGPT) para buscar respostas:");
-            if (!apiKey) return;
-            localStorage.setItem("km_api_key", apiKey);
-        }
+    // Função de comunicação com a API do Google Gemini
+    async function obterRespostaGemini(textoDaPagina) {
+        let apiKey = localStorage.getItem("km_gemini_api_key") || DEFAULT_API_KEY;
 
         const respostaDiv = document.querySelector("#km-resposta");
         respostaDiv.style.display = "block";
-        respostaDiv.textContent = "⏳ Analisando com I.A...";
+        respostaDiv.textContent = "⏳ Analisando com Gemini I.A...";
 
         try {
-            // Extrai também o texto matemático do KaTeX, essencial para o Khan Academy
+            // Captura também expressões matemáticas (KaTeX)
             let textoMatematico = "";
             document.querySelectorAll('.katex-mathml annotation').forEach(el => {
                 textoMatematico += " " + el.textContent;
             });
             
-            const textoFinal = (textoDaPagina + "\n" + textoMatematico).slice(0, 3500); // Limite de leitura
+            const textoFinal = (textoDaPagina + "\n" + textoMatematico).slice(0, 4000);
 
-            const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+            const response = await fetch(url, {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${apiKey}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    model: "gpt-3.5-turbo",
-                    messages: [
+                    contents: [
                         {
-                            role: "system",
-                            content: "Você é um resolvedor de questões focado em ser direto. O usuário enviará o texto bagunçado de uma página web contendo uma questão. Encontre a questão, resolva internamente, e retorne APENAS A RESPOSTA FINAL. Não explique como chegou lá, não use textos introdutórios. Diga apenas a resposta ou a alternativa correta."
-                        },
-                        {
-                            role: "user",
-                            content: textoFinal
+                            parts: [
+                                { text: "Texto extraído da página:\n\n" + textoFinal }
+                            ]
                         }
                     ],
-                    temperature: 0.1
+                    systemInstruction: {
+                        parts: [
+                            {
+                                text: "Você é um resolvedor de questões direto e preciso. Encontre a questão contida no texto recebido, resolva-a internamente e retorne APENAS A RESPOSTA FINAL (ex: a opção correta, o valor numérico ou a alternativa). Não explique os cálculos e não inclua saudações."
+                            }
+                        ]
+                    },
+                    generationConfig: {
+                        temperature: 0.1
+                    }
                 })
             });
 
             if (!response.ok) {
-                if(response.status === 401) {
-                    localStorage.removeItem("km_api_key");
-                    throw new Error("Chave de API inválida. Tente novamente.");
-                }
-                throw new Error("Erro na API: " + response.status);
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error?.message || "Erro na API Gemini: " + response.status);
             }
 
             const data = await response.json();
-            respostaDiv.innerHTML = "🎯 <b>Resposta:</b><br>" + data.choices[0].message.content;
+            const textoResposta = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (textoResposta) {
+                respostaDiv.innerHTML = "🎯 <b>Resposta:</b><br>" + textoResposta.trim().replace(/\n/g, "<br>");
+            } else {
+                throw new Error("Nenhuma resposta gerada pela I.A.");
+            }
 
         } catch (error) {
             respostaDiv.innerHTML = "❌ <b>Erro:</b> " + error.message;
@@ -126,22 +136,25 @@
             btn.style.color = "#000";
 
             extra.innerHTML = `
-                <button class="km-btn" id="questao" style="background:#4facfe; color:#000;">
-                    Obter resposta com I.A
+                <button class="km-btn" id="questao" style="background:#a777e3; color:#fff;">
+                    Obter resposta (Gemini IA)
                 </button>
                 <button class="km-btn" id="limpar_api" style="background:#444; color:#fff; font-size:11px; padding:6px;">
-                    Redefinir API Key
+                    Alterar API Key
                 </button>
             `;
 
             document.querySelector("#questao").onclick = () => {
                 const texto = document.body.innerText;
-                obterRespostaIA(texto);
+                obterRespostaGemini(texto);
             };
 
             document.querySelector("#limpar_api").onclick = () => {
-                localStorage.removeItem("km_api_key");
-                alert("Sua chave da OpenAI foi removida do navegador.");
+                const novaChave = prompt("Digite a API Key do Gemini:", localStorage.getItem("km_gemini_api_key") || "");
+                if (novaChave) {
+                    localStorage.setItem("km_gemini_api_key", novaChave);
+                    alert("Chave atualizada!");
+                }
             };
 
         } else {
