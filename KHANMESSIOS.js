@@ -11,12 +11,6 @@
         analyzing: false
     };
 
-    // Chave de API do Gemini configurada automaticamente
-    const DEFAULT_API_KEY = "AQ.Ab8RN6JocWJTYdwgPxzd6SNEHXJQSL5_HRCZhTvQoah6yyZRPQ";
-    if (!localStorage.getItem("km_gemini_api_key")) {
-        localStorage.setItem("km_gemini_api_key", DEFAULT_API_KEY);
-    }
-
     const style = document.createElement("style");
     style.textContent = `
         #km-button {
@@ -60,63 +54,52 @@
         menu.style.display = menu.style.display === "block" ? "none" : "block";
     };
 
-    // Função de comunicação com a API do Google Gemini
-    async function obterRespostaGemini(textoDaPagina) {
-        let apiKey = localStorage.getItem("km_gemini_api_key") || DEFAULT_API_KEY;
-
+    // Processador de IA sem necessidade de chave API
+    async function obterRespostaSemKey(textoDaPagina) {
         const respostaDiv = document.querySelector("#km-resposta");
         respostaDiv.style.display = "block";
-        respostaDiv.textContent = "⏳ Analisando com Gemini I.A...";
+        respostaDiv.textContent = "⏳ Analisando sem chave API (IA Gratuita)...";
 
         try {
-            // Captura também expressões matemáticas (KaTeX)
+            // Extrai texto de fórmulas matemáticas (KaTeX)
             let textoMatematico = "";
             document.querySelectorAll('.katex-mathml annotation').forEach(el => {
                 textoMatematico += " " + el.textContent;
             });
-            
-            const textoFinal = (textoDaPagina + "\n" + textoMatematico).slice(0, 4000);
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+            const textoFinal = (textoDaPagina + "\n" + textoMatematico).slice(0, 3500);
 
-            const response = await fetch(url, {
+            // Requisição para servidor público gratuito
+            const response = await fetch("https://text.pollinations.ai/", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    contents: [
+                    messages: [
                         {
-                            parts: [
-                                { text: "Texto extraído da página:\n\n" + textoFinal }
-                            ]
+                            role: "system",
+                            content: "Você é um resolvedor de questões focado em ser extremamente direto. Encontre a questão no texto recebido e retorne APENAS A RESPOSTA FINAL (ex: a alternativa correta, número ou valor exato). Não explique nada, não dê saudações, forneça apenas a resposta."
+                        },
+                        {
+                            role: "user",
+                            content: textoFinal
                         }
                     ],
-                    systemInstruction: {
-                        parts: [
-                            {
-                                text: "Você é um resolvedor de questões direto e preciso. Encontre a questão contida no texto recebido, resolva-a internamente e retorne APENAS A RESPOSTA FINAL (ex: a opção correta, o valor numérico ou a alternativa). Não explique os cálculos e não inclua saudações."
-                            }
-                        ]
-                    },
-                    generationConfig: {
-                        temperature: 0.1
-                    }
+                    model: "openai"
                 })
             });
 
             if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.error?.message || "Erro na API Gemini: " + response.status);
+                throw new Error("Erro na conexão com o servidor gratuito: " + response.status);
             }
 
-            const data = await response.json();
-            const textoResposta = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            const resultadoTexto = await response.text();
 
-            if (textoResposta) {
-                respostaDiv.innerHTML = "🎯 <b>Resposta:</b><br>" + textoResposta.trim().replace(/\n/g, "<br>");
+            if (resultadoTexto) {
+                respostaDiv.innerHTML = "🎯 <b>Resposta:</b><br>" + resultadoTexto.trim().replace(/\n/g, "<br>");
             } else {
-                throw new Error("Nenhuma resposta gerada pela I.A.");
+                throw new Error("Nenhuma resposta foi gerada.");
             }
 
         } catch (error) {
@@ -136,25 +119,14 @@
             btn.style.color = "#000";
 
             extra.innerHTML = `
-                <button class="km-btn" id="questao" style="background:#a777e3; color:#fff;">
-                    Obter resposta (Gemini IA)
-                </button>
-                <button class="km-btn" id="limpar_api" style="background:#444; color:#fff; font-size:11px; padding:6px;">
-                    Alterar API Key
+                <button class="km-btn" id="questao" style="background:#28a745; color:#fff;">
+                    Obter Resposta (Sem API Key)
                 </button>
             `;
 
             document.querySelector("#questao").onclick = () => {
                 const texto = document.body.innerText;
-                obterRespostaGemini(texto);
-            };
-
-            document.querySelector("#limpar_api").onclick = () => {
-                const novaChave = prompt("Digite a API Key do Gemini:", localStorage.getItem("km_gemini_api_key") || "");
-                if (novaChave) {
-                    localStorage.setItem("km_gemini_api_key", novaChave);
-                    alert("Chave atualizada!");
-                }
+                obterRespostaSemKey(texto);
             };
 
         } else {
