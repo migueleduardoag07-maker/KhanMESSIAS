@@ -54,6 +54,119 @@
         menu.style.display = menu.style.display === "block" ? "none" : "block";
     };
 
+    // =========================================================================
+    // === NOVO: SISTEMA DE LEITURA E DETECÇÃO DE ALTERNATIVAS E MATEMÁTICA  ===
+    // =========================================================================
+
+    /**
+     * Normaliza expressões matemáticas para garantir formato limpo e padronizado.
+     * Exemplo: " h  =1 " vira "h = 1"
+     */
+    function normalizarExpressaoMatematica(texto) {
+        if (!texto) return "";
+        return texto
+            .replace(/\s+/g, " ")                 // Une múltiplos espaços/quebras de linha
+            .replace(/\s*=\s*/g, " = ")            // Padroniza o sinal de igualdade
+            .replace(/\s*([+\-*/^])\s*/g, " $1 ")   // Padroniza operadores
+            .replace(/\(\s+/g, "(")             .replace(/\s+\)/g, ")")
+            .trim();
+    }
+
+    /**
+     * Extrai o conteúdo visual/estrutural de um elemento tentando métodos
+     * hierárquicos: ARIA -> KaTeX/MathML -> SVG -> innerText/textContent.
+     */
+    function extrairTextoComMath(elemento) {
+        if (!elemento) return "";
+
+        // 1. Acessibilidade e rótulos explícitos (aria-label / aria-description / title)
+        const ariaLabel = elemento.getAttribute("aria-label") || elemento.getAttribute("aria-description") || elemento.getAttribute("title");
+        if (ariaLabel && ariaLabel.trim().length > 0) {
+            return normalizarExpressaoMatematica(ariaLabel);
+        }
+
+        // 2. Anotações LaTeX/MathML embutidas no KaTeX (utilizadas pela Khan Academy)
+        const katexAnnotations = elemento.querySelectorAll('.katex-mathml annotation, annotation[encoding="application/x-tex"]');
+        if (katexAnnotations.length > 0) {
+            const textoKaTeX = Array.from(katexAnnotations)
+                .map(ann => ann.textContent || "")
+                .filter(t => t.trim().length > 0)
+                .join(" ");
+            if (textoKaTeX.trim().length > 0) {
+                return normalizarExpressaoMatematica(textoKaTeX);
+            }
+        }
+
+        // 3. Estruturas MathML nativas (<math>)
+        const mathNodes = elemento.querySelectorAll('math');
+        if (mathNodes.length > 0) {
+            const textoMath = Array.from(mathNodes)
+                .map(node => {
+                    const ann = node.querySelector('annotation');
+                    return ann ? ann.textContent : node.textContent;
+                })
+                .join(" ");
+            if (textoMath.trim().length > 0) {
+                return normalizarExpressaoMatematica(textoMath);
+            }
+        }
+
+        // 4. Elementos gráficos SVG (textos internos, rótulos ou títulos)
+        const svgElements = elemento.querySelectorAll('svg');
+        if (svgElements.length > 0) {
+            const textosSVG = [];
+            svgElements.forEach(svg => {
+                const svgAria = svg.getAttribute('aria-label');
+                if (svgAria) textosSVG.push(svgAria);
+                
+                svg.querySelectorAll('title, text').forEach(t => {
+                    if (t.textContent) textosSVG.push(t.textContent);
+                });
+            });
+            if (textosSVG.length > 0) {
+                return normalizarExpressaoMatematica(textosSVG.join(" "));
+            }
+        }
+
+        // 5. Fallback estrutural: Varredura profunda de texto em nós internos
+        const textoBruto = elemento.innerText || elemento.textContent || "";
+        return normalizarExpressaoMatematica(textoBruto);
+    }
+
+    /**
+     * Localiza dinamicamente as alternativas na página (Rádio, Checkbox, Botões, Perseus)
+     * e retorna uma lista formatada.
+     */
+    function extrairAlternativasDaPagina() {
+        const seletoresAlternativas = [
+            '[role="radio"]',
+            '[role="checkbox"]',
+            '.perseus-radio-option',
+            '.perseus-interactive',
+            'ul[class*="option"] li',
+            'fieldset label',
+            'button[class*="option"]',
+            'div[data-test-id*="option"]',
+            '[aria-checked]'
+        ];
+
+        const elementosEncontrados = document.querySelectorAll(seletoresAlternativas.join(', '));
+        const alternativas = [];
+        const textosVistos = new Set();
+
+        elementosEncontrados.forEach((el) => {
+            const conteudo = extrairTextoComMath(el);
+            // Evita duplicatas e textos vazios ou irrelevantes
+            if (conteudo && conteudo.length > 0 && !textosVistos.has(conteudo)) {
+                textosVistos.add(conteudo);
+                alternativas.push(`Opção ${alternativas.length + 1}: ${conteudo}`);
+            }
+        });
+
+        return alternativas;
+    }
+    // =========================================================================
+
     // Processador de IA sem necessidade de chave API
     async function obterRespostaSemKey(textoDaPagina) {
         const respostaDiv = document.querySelector("#km-resposta");
@@ -67,7 +180,15 @@
                 textoMatematico += " " + el.textContent;
             });
 
-            const textoFinal = (textoDaPagina + "\n" + textoMatematico).slice(0, 3500);
+            // === NOVO: INTEGRAÇÃO DAS ALTERNATIVAS DETECTADAS DINAMICAMENTE ===
+            const alternativasDetectadas = extrairAlternativasDaPagina();
+            let blocoAlternativas = "";
+            if (alternativasDetectadas.length > 0) {
+                blocoAlternativas = "\n\nAlternativas encontradas na página:\n" + alternativasDetectadas.join("\n");
+            }
+            // =================================================================
+
+            const textoFinal = (textoDaPagina + "\n" + textoMatematico + blocoAlternativas).slice(0, 3500);
 
             // Requisição para servidor público gratuito
             const response = await fetch("https://text.pollinations.ai/", {
