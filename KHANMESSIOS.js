@@ -3,448 +3,540 @@
 
     /*
      * ============================================================
-     * KHANWARE V4
+     * KHANMESSIAS V4.1.0
      * ============================================================
+     * Interface de produtividade/navegação para Khan Academy.
      *
-     * Núcleo reconstruído a partir da arquitetura da V3.
+     * Inclui:
+     * - Menu flutuante
+     * - Dashboard
+     * - Recomendações encontradas na página
+     * - Fila de estudos persistente
+     * - Abrir próximo item
+     * - Modo foco com cronômetro
+     * - Tema claro/escuro/sistema
+     * - Modo compacto
+     * - Acessibilidade
+     * - Diagnóstico
+     * - MutationObserver
+     * - Detecção de navegação SPA
+     * - localStorage
      *
-     * Mantidos conceitos da versão original:
-     * - ver
-     * - isDev
-     * - device
-     * - user
-     * - loadedPlugins
-     * - features
-     * - featureConfigs
-     * - translations
-     * - delay()
-     * - playAudio()
-     * - sendToast()
-     * - setupMenu()
-     * - setupMain()
-     * - boot()
-     *
-     * Principais mudanças:
-     * - sem eval()
-     * - sem execução arbitrária de JavaScript remoto
-     * - sem dependência obrigatória de GraphQL interno
-     * - MutationObserver no lugar de dependência externa de DOM
-     * - armazenamento local de configurações
-     * - sistema de módulos
-     * - tratamento de erros
-     * - menu responsivo
-     * - tema claro/escuro
-     * - descoberta de recomendações pela interface
-     * - Study Queue
-     * - diagnóstico
-     *
+     * Não implementa respostas automáticas, falsificação de
+     * progresso ou mecanismos para burlar exercícios.
      * ============================================================
      */
 
-    /* ============================================================
-     * CONFIGURAÇÃO
-     * ============================================================ */
+    const VERSION = "V4.1.0";
+    const APP_NAME = "KhanMESSIAS";
+    const STORAGE_KEY = "khanmessias:v4:settings";
+    const QUEUE_KEY = "khanmessias:v4:queue";
+    const INSTANCE_KEY = "__KHANMESSIAS_INSTANCE__";
 
-    const ver = "V4.0.0";
-    const isDev = false;
+    if (window[INSTANCE_KEY]?.destroy) {
+        try {
+            window[INSTANCE_KEY].destroy();
+        } catch (_) {}
+    }
 
-    const APP_NAME = "Khanware";
-    const STORAGE_KEY = "khanware:v4:settings";
+    const state = {
+        open: false,
+        page: "dashboard",
+        observer: null,
+        routeTimer: null,
+        focusTimerId: null,
+        focusTimer: false,
+        focusSeconds: 0,
+        lastUrl: location.href,
+        destroyed: false,
 
-    const CONFIG = {
-        debug: isDev,
-        observeDOM: true,
-        menuRetryInterval: 1000,
-        menuMaxRetries: 30,
-        toastDuration: 4000,
-        maxStudyItems: 20
+        settings: {
+            theme: "system",
+            compact: false,
+            notifications: true,
+            recommendations: true,
+            accessibility: true,
+            autoRefresh: true,
+            refreshSeconds: 15,
+            reduceMotion: false,
+            largeText: false
+        },
+
+        queue: []
     };
 
-    /* ============================================================
-     * DEVICE
-     * ============================================================ */
+    const features = {
+        dashboard: true,
+        recommendations: true,
+        studyQueue: true,
+        focusMode: true,
+        accessibility: true,
+        autoRefresh: true,
 
-    const device = {
-        mobile:
-            /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Windows Phone|Mobile|Tablet|Kindle|Silk|PlayBook|BB10/i
-                .test(navigator.userAgent),
-
-        apple:
-            /iPhone|iPad|iPod|Macintosh|Mac OS X/i
-                .test(navigator.userAgent),
-
-        language:
-            (navigator.language || "en").split("-")[0]
-    };
-
-    /* ============================================================
-     * USER
-     * ============================================================ */
-
-    let user = {
-        username: "Username",
-        nickname: "Nickname",
-        UID: null
-    };
-
-    /* ============================================================
-     * PLUGINS
-     * ============================================================ */
-
-    const loadedPlugins = [];
-
-    /* ============================================================
-     * FEATURES
-     *
-     * Mantemos nomes próximos da V3 para não quebrar código
-     * que eventualmente dependa dessas flags.
-     * ============================================================ */
-
-    window.features = {
+        // Compatibilidade nominal com versões antigas.
+        // Não são implementados como bypass/cheat.
         questionSpoof: false,
         videoSpoof: false,
         autoAnswer: false,
-
         customBanner: false,
         nextRecomendation: true,
         repeatQuestion: false,
         minuteFarmer: false,
-        rgbLogo: false,
-
-        studyQueue: true,
-        recommendations: true,
-        accessibility: true,
-        dashboard: true
+        rgbLogo: false
     };
 
-    window.featureConfigs = {
-        autoAnswerDelay: 3,
-        customUsername: "",
-        customPfp: "",
-        openRouterKey: "",
+    window.features = features;
+    window.featureConfigs = state.settings;
 
-        theme: "system",
-        compactMode: false,
-        notifications: true
-    };
+    const log = (...args) =>
+        console.info(`[${APP_NAME} ${VERSION}]`, ...args);
 
-    /* ============================================================
-     * TRANSLATIONS
-     * ============================================================ */
+    const warn = (...args) =>
+        console.warn(`[${APP_NAME} ${VERSION}]`, ...args);
 
-    let translations = {};
+    const error = (...args) =>
+        console.error(`[${APP_NAME} ${VERSION}]`, ...args);
 
-    const fallbackTranslations = {
-        en: {
-            injection_success: "Khanware loaded successfully.",
-            welcome_back: "Welcome back",
-            recommendations: "Recommendations",
-            dashboard: "Dashboard",
-            studyQueue: "Study Queue",
-            settings: "Settings",
-            diagnostics: "Diagnostics",
-            accessibility: "Accessibility",
-            continue: "Continue",
-            start: "Start",
-            noRecommendations: "No recommendations found.",
-            saved: "Settings saved.",
-            enabled: "Enabled",
-            disabled: "Disabled"
-        },
-
-        pt: {
-            injection_success: "Khanware carregado com sucesso.",
-            welcome_back: "Bem-vindo de volta",
-            recommendations: "Recomendações",
-            dashboard: "Painel",
-            studyQueue: "Fila de estudos",
-            settings: "Configurações",
-            diagnostics: "Diagnóstico",
-            accessibility: "Acessibilidade",
-            continue: "Continuar",
-            start: "Começar",
-            noRecommendations: "Nenhuma recomendação encontrada.",
-            saved: "Configurações salvas.",
-            enabled: "Ativado",
-            disabled: "Desativado"
-        }
-    };
-
-    function t(key) {
-        return (
-            translations?.[device.language]?.[key] ??
-            fallbackTranslations?.[device.language]?.[key] ??
-            translations?.en?.[key] ??
-            fallbackTranslations.en[key] ??
-            key
-        );
+    function escapeHTML(value) {
+        return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
     }
 
-    /* ============================================================
-     * LOGGER
-     * ============================================================ */
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
-    const Logger = {
-        prefix: `[${APP_NAME} ${ver}]`,
+    function loadSettings() {
+        try {
+            const saved = JSON.parse(
+                localStorage.getItem(STORAGE_KEY) || "null"
+            );
 
-        log(...args) {
-            if (CONFIG.debug) {
-                console.log(this.prefix, ...args);
+            if (saved && typeof saved === "object") {
+                Object.assign(state.settings, saved);
             }
-        },
-
-        info(...args) {
-            console.info(this.prefix, ...args);
-        },
-
-        warn(...args) {
-            console.warn(this.prefix, ...args);
-        },
-
-        error(...args) {
-            console.error(this.prefix, ...args);
-        }
-    };
-
-    window.debug = function (text) {
-        Logger.log(text);
-    };
-
-    /* ============================================================
-     * UTILS
-     * ============================================================ */
-
-    const delay = ms =>
-        new Promise(resolve => setTimeout(resolve, ms));
-
-    async function safeDelay(ms) {
-        await delay(Math.max(0, Number(ms) || 0));
-    }
-
-    async function playAudio(url) {
-        try {
-            const audio = new Audio(url);
-            await audio.play();
-            Logger.log(`Playing audio from ${url}`);
-        } catch (error) {
-            Logger.warn("Audio could not be played.", error);
-        }
-    }
-
-    function findAndClickBySelector(selector) {
-        const element = document.querySelector(selector);
-
-        if (!element) {
-            return false;
+        } catch (e) {
+            warn("Não foi possível carregar as configurações.", e);
         }
 
         try {
-            element.click();
-            Logger.log(`Pressed ${selector}`);
-            return true;
-        } catch (error) {
-            Logger.warn(`Could not click ${selector}`, error);
-            return false;
+            const queue = JSON.parse(
+                localStorage.getItem(QUEUE_KEY) || "[]"
+            );
+
+            if (Array.isArray(queue)) {
+                state.queue = queue.slice(0, 50);
+            }
+        } catch (e) {
+            warn("Não foi possível carregar a fila.", e);
         }
     }
 
-    /* ============================================================
-     * TOAST SYSTEM
-     * ============================================================ */
-
-    let toastContainer = null;
-
-    function ensureToastContainer() {
-        if (toastContainer?.isConnected) {
-            return toastContainer;
+    function saveSettings() {
+        try {
+            localStorage.setItem(
+                STORAGE_KEY,
+                JSON.stringify(state.settings)
+            );
+        } catch (e) {
+            warn("Não foi possível salvar as configurações.", e);
         }
-
-        toastContainer = document.createElement("div");
-        toastContainer.id = "kw-toast-container";
-
-        document.body.appendChild(toastContainer);
-
-        return toastContainer;
     }
 
-    function sendToast(
-        text,
-        duration = CONFIG.toastDuration,
-        gravity = "bottom"
-    ) {
-        if (!featureConfigs.notifications) {
-            return;
+    function saveQueue() {
+        try {
+            localStorage.setItem(
+                QUEUE_KEY,
+                JSON.stringify(state.queue)
+            );
+        } catch (e) {
+            warn("Não foi possível salvar a fila.", e);
         }
+    }
 
-        const container = ensureToastContainer();
+    function toast(message, duration = 3000) {
+        if (!state.settings.notifications) return;
 
-        const toast = document.createElement("div");
+        const box = document.createElement("div");
 
-        toast.className = "kw-toast";
-        toast.dataset.gravity = gravity;
+        box.className = "km-toast";
+        box.textContent = message;
 
-        toast.textContent = text;
-
-        container.appendChild(toast);
+        document.body.appendChild(box);
 
         requestAnimationFrame(() => {
-            toast.classList.add("kw-toast-visible");
+            box.classList.add("km-toast-show");
         });
 
         setTimeout(() => {
-            toast.classList.remove("kw-toast-visible");
+            box.classList.remove("km-toast-show");
 
             setTimeout(() => {
-                toast.remove();
-            }, 250);
+                box.remove();
+            }, 220);
         }, duration);
-
-        Logger.log(text);
     }
 
-    /* ============================================================
-     * STORAGE
-     * ============================================================ */
+    const Adapter = {
+        getTitle() {
+            return document.title || "Khan Academy";
+        },
 
-    const Storage = {
-        load() {
-            try {
-                const raw = localStorage.getItem(STORAGE_KEY);
+        getUrl() {
+            return location.href;
+        },
 
-                if (!raw) {
-                    return null;
+        getMain() {
+            return (
+                document.querySelector("main") ||
+                document.querySelector('[role="main"]') ||
+                document.body
+            );
+        },
+
+        getNavigation() {
+            return (
+                document.querySelector("nav") ||
+                document.querySelector('[role="navigation"]')
+            );
+        },
+
+        getVisibleLinks() {
+            return [...document.querySelectorAll("a[href]")]
+                .filter(a => {
+                    const rect = a.getBoundingClientRect();
+                    const style = getComputedStyle(a);
+
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== "none" &&
+                        style.visibility !== "hidden"
+                    );
+                });
+        },
+
+        getStudyLinks() {
+            const keywords = [
+                "practice",
+                "exercise",
+                "lesson",
+                "course",
+                "quiz",
+                "unit",
+                "article",
+                "skill",
+                "mastery",
+                "learn",
+
+                "prática",
+                "exercício",
+                "lição",
+                "curso",
+                "questionário",
+                "unidade",
+                "artigo",
+                "habilidade",
+                "aprender"
+            ];
+
+            const ignored = [
+                "/login",
+                "/signup",
+                "/settings",
+                "/profile/me",
+                "mailto:",
+                "javascript:"
+            ];
+
+            const seen = new Set();
+            const results = [];
+
+            for (const link of this.getVisibleLinks()) {
+                const href = link.href;
+
+                const text = (
+                    link.innerText ||
+                    link.getAttribute("aria-label") ||
+                    ""
+                ).trim();
+
+                const haystack =
+                    `${text} ${href}`.toLowerCase();
+
+                if (!href) continue;
+
+                if (ignored.some(x => href.includes(x))) {
+                    continue;
                 }
 
-                return JSON.parse(raw);
-            } catch (error) {
-                Logger.error("Could not load settings.", error);
-                return null;
+                if (!keywords.some(k => haystack.includes(k))) {
+                    continue;
+                }
+
+                let url;
+
+                try {
+                    url = new URL(
+                        href,
+                        location.href
+                    ).href;
+                } catch (_) {
+                    continue;
+                }
+
+                if (
+                    url.startsWith("javascript:") ||
+                    seen.has(url)
+                ) {
+                    continue;
+                }
+
+                seen.add(url);
+
+                results.push({
+                    title:
+                        text ||
+                        this.cleanUrlTitle(url),
+
+                    url
+                });
+
+                if (results.length >= 30) {
+                    break;
+                }
             }
+
+            return results;
         },
 
-        save(data) {
+        cleanUrlTitle(url) {
             try {
-                localStorage.setItem(
-                    STORAGE_KEY,
-                    JSON.stringify(data)
-                );
+                const u = new URL(url);
 
-                return true;
-            } catch (error) {
-                Logger.error("Could not save settings.", error);
-                return false;
+                const part =
+                    u.pathname
+                        .split("/")
+                        .filter(Boolean)
+                        .pop();
+
+                return decodeURIComponent(
+                    part || u.hostname
+                )
+                    .replaceAll("-", " ")
+                    .replaceAll("_", " ");
+            } catch (_) {
+                return url;
             }
         },
 
-        get(key, fallback = null) {
-            const data = this.load();
+        getPageSummary() {
+            const main = this.getMain();
 
-            return data && key in data
-                ? data[key]
-                : fallback;
-        },
+            const text = (
+                main?.innerText || ""
+            )
+                .replace(/\s+/g, " ")
+                .trim();
 
-        set(key, value) {
-            const data = this.load() || {};
-
-            data[key] = value;
-
-            return this.save(data);
+            return text.slice(0, 600);
         }
     };
 
-    /* ============================================================
-     * SETTINGS
-     * ============================================================ */
+    const Queue = {
+        has(url) {
+            return state.queue.some(
+                item => item.url === url
+            );
+        },
 
-    const Settings = {
-        load() {
-            const saved = Storage.load();
+        add(item) {
+            if (!item?.url) {
+                return false;
+            }
 
-            if (!saved) {
+            if (this.has(item.url)) {
+                toast("Esse item já está na fila.");
+                return false;
+            }
+
+            state.queue.push({
+                title: String(
+                    item.title || "Estudo"
+                ).slice(0, 180),
+
+                url: item.url,
+
+                addedAt: Date.now()
+            });
+
+            if (state.queue.length > 50) {
+                state.queue.shift();
+            }
+
+            saveQueue();
+
+            toast("Adicionado à fila.");
+
+            renderCurrentPage();
+
+            return true;
+        },
+
+        remove(index) {
+            if (
+                index < 0 ||
+                index >= state.queue.length
+            ) {
                 return;
             }
 
-            if (saved.features) {
-                Object.assign(
-                    window.features,
-                    saved.features
-                );
-            }
+            state.queue.splice(index, 1);
 
-            if (saved.featureConfigs) {
-                Object.assign(
-                    window.featureConfigs,
-                    saved.featureConfigs
-                );
-            }
+            saveQueue();
+
+            renderCurrentPage();
         },
 
-        save() {
-            return Storage.save({
-                features: window.features,
-                featureConfigs: window.featureConfigs
-            });
+        clear() {
+            state.queue = [];
+
+            saveQueue();
+
+            toast("Fila limpa.");
+
+            renderCurrentPage();
         },
 
-        reset() {
-            localStorage.removeItem(STORAGE_KEY);
+        next() {
+            const item = state.queue[0];
 
-            location.reload();
+            if (!item) {
+                toast("A fila está vazia.");
+                return;
+            }
+
+            state.queue.shift();
+
+            saveQueue();
+
+            location.href = item.url;
         }
     };
 
-    /* ============================================================
-     * STYLE
-     * ============================================================ */
+    const Theme = {
+        apply() {
+            const app =
+                document.getElementById("km-app");
+
+            if (!app) {
+                return;
+            }
+
+            app.classList.remove("km-dark");
+
+            let dark = false;
+
+            if (state.settings.theme === "dark") {
+                dark = true;
+            }
+
+            if (
+                state.settings.theme === "system" &&
+                matchMedia(
+                    "(prefers-color-scheme: dark)"
+                ).matches
+            ) {
+                dark = true;
+            }
+
+            if (dark) {
+                app.classList.add("km-dark");
+            }
+
+            app.classList.toggle(
+                "km-compact",
+                !!state.settings.compact
+            );
+
+            app.classList.toggle(
+                "km-large-text",
+                !!state.settings.largeText
+            );
+
+            app.classList.toggle(
+                "km-reduce-motion",
+                !!state.settings.reduceMotion
+            );
+        }
+    };
 
     function injectStyles() {
-        if (document.getElementById("kw-v4-style")) {
+        if (document.getElementById("km-style")) {
             return;
         }
 
         const style = document.createElement("style");
 
-        style.id = "kw-v4-style";
+        style.id = "km-style";
 
         style.textContent = `
-            #kw-app,
-            #kw-app * {
+            #km-app,
+            #km-app * {
                 box-sizing: border-box;
             }
 
-            #kw-app {
-                --kw-bg: #ffffff;
-                --kw-bg-secondary: #f5f7fa;
-                --kw-text: #202124;
-                --kw-text-secondary: #687078;
-                --kw-border: #e1e5e9;
-                --kw-accent: #14a05a;
-                --kw-accent-hover: #10894d;
-                --kw-danger: #d93025;
-                --kw-shadow:
-                    0 12px 35px rgba(0,0,0,.15);
+            #km-app {
+                --km-bg: #fff;
+                --km-panel: #f5f7f9;
+                --km-text: #202124;
+                --km-muted: #687078;
+                --km-border: #dfe3e7;
+                --km-accent: #14a05a;
+                --km-accent-hover: #10894d;
+                --km-danger: #d93025;
+                --km-shadow:
+                    0 18px 55px rgba(0,0,0,.20);
 
                 position: fixed;
-                top: 80px;
-                right: 24px;
+                z-index: 2147483000;
 
-                width: min(720px, calc(100vw - 32px));
-                height: min(650px, calc(100vh - 110px));
+                top: 70px;
+                right: 20px;
 
-                z-index: 999999;
+                width:
+                    min(
+                        820px,
+                        calc(100vw - 30px)
+                    );
+
+                height:
+                    min(
+                        680px,
+                        calc(100vh - 90px)
+                    );
 
                 display: none;
 
                 overflow: hidden;
 
-                border: 1px solid var(--kw-border);
+                border:
+                    1px solid var(--km-border);
+
                 border-radius: 18px;
 
-                background: var(--kw-bg);
-                color: var(--kw-text);
+                background:
+                    var(--km-bg);
 
-                box-shadow: var(--kw-shadow);
+                color:
+                    var(--km-text);
+
+                box-shadow:
+                    var(--km-shadow);
 
                 font-family:
                     Inter,
@@ -453,51 +545,78 @@
                     BlinkMacSystemFont,
                     "Segoe UI",
                     sans-serif;
+
+                font-size: 14px;
             }
 
-            #kw-app.kw-open {
+            #km-app.km-open {
                 display: flex;
             }
 
-            #kw-app.kw-dark {
-                --kw-bg: #17191c;
-                --kw-bg-secondary: #202327;
-                --kw-text: #f1f3f4;
-                --kw-text-secondary: #aeb4ba;
-                --kw-border: #34383d;
-                --kw-shadow:
-                    0 18px 50px rgba(0,0,0,.45);
+            #km-app.km-dark {
+                --km-bg: #17191c;
+                --km-panel: #22262a;
+                --km-text: #f2f4f5;
+                --km-muted: #aab1b8;
+                --km-border: #353a40;
+                --km-shadow:
+                    0 22px 65px rgba(0,0,0,.55);
             }
 
-            .kw-sidebar {
+            #km-app.km-large-text {
+                font-size: 16px;
+            }
+
+            #km-app.km-compact {
+                width:
+                    min(
+                        680px,
+                        calc(100vw - 30px)
+                    );
+
+                height:
+                    min(
+                        580px,
+                        calc(100vh - 90px)
+                    );
+            }
+
+            .km-sidebar {
                 width: 190px;
-                flex-shrink: 0;
+                flex: 0 0 190px;
 
-                padding: 14px;
-
-                background:
-                    var(--kw-bg-secondary);
-
-                border-right:
-                    1px solid var(--kw-border);
+                padding: 12px;
 
                 display: flex;
                 flex-direction: column;
+
                 gap: 5px;
+
+                background:
+                    var(--km-panel);
+
+                border-right:
+                    1px solid var(--km-border);
             }
 
-            .kw-brand {
-                padding: 14px 10px 18px;
-                font-size: 17px;
+            .km-brand {
+                padding:
+                    12px 9px 17px;
+
+                font-size: 18px;
                 font-weight: 800;
             }
 
-            .kw-brand span {
-                color: var(--kw-accent);
+            .km-brand b {
+                color:
+                    var(--km-accent);
             }
 
-            .kw-nav-button {
+            .km-nav {
+                width: 100%;
+
                 border: 0;
+
                 border-radius: 10px;
 
                 padding: 10px;
@@ -505,24 +624,35 @@
                 text-align: left;
 
                 background: transparent;
-                color: var(--kw-text-secondary);
+
+                color:
+                    var(--km-muted);
 
                 cursor: pointer;
 
                 font: inherit;
             }
 
-            .kw-nav-button:hover {
-                background: var(--kw-bg);
-                color: var(--kw-text);
+            .km-nav:hover {
+                background:
+                    var(--km-bg);
+
+                color:
+                    var(--km-text);
             }
 
-            .kw-nav-button.kw-active {
-                background: var(--kw-accent);
-                color: white;
+            .km-nav.km-active {
+                background:
+                    var(--km-accent);
+
+                color: #fff;
             }
 
-            .kw-main {
+            .km-spacer {
+                flex: 1;
+            }
+
+            .km-main {
                 min-width: 0;
                 flex: 1;
 
@@ -530,122 +660,248 @@
                 flex-direction: column;
             }
 
-            .kw-header {
-                height: 62px;
+            .km-header {
+                min-height: 60px;
+
+                padding:
+                    0 16px;
 
                 display: flex;
-                align-items: center;
-                justify-content: space-between;
 
-                padding: 0 18px;
+                align-items: center;
+
+                justify-content:
+                    space-between;
 
                 border-bottom:
-                    1px solid var(--kw-border);
+                    1px solid var(--km-border);
             }
 
-            .kw-header-title {
-                font-size: 16px;
-                font-weight: 750;
+            .km-title {
+                font-weight: 800;
             }
 
-            .kw-header-actions {
+            .km-actions {
                 display: flex;
                 gap: 6px;
             }
 
-            .kw-icon-button {
+            .km-icon {
                 width: 34px;
                 height: 34px;
 
                 border: 0;
+
                 border-radius: 9px;
 
-                background: var(--kw-bg-secondary);
-                color: var(--kw-text);
+                background:
+                    var(--km-panel);
+
+                color:
+                    var(--km-text);
 
                 cursor: pointer;
-                font-size: 16px;
+
+                font: inherit;
             }
 
-            .kw-content {
+            .km-content {
                 flex: 1;
-                overflow-y: auto;
-                padding: 20px;
+
+                overflow: auto;
+
+                padding: 18px;
             }
 
-            .kw-card {
-                border: 1px solid var(--kw-border);
-                border-radius: 14px;
-
-                padding: 16px;
+            .km-card {
+                padding: 15px;
 
                 margin-bottom: 12px;
 
-                background: var(--kw-bg);
+                border:
+                    1px solid var(--km-border);
+
+                border-radius: 14px;
+
+                background:
+                    var(--km-bg);
             }
 
-            .kw-card-title {
-                font-weight: 750;
-                margin-bottom: 5px;
+            .km-card h3 {
+                margin:
+                    0 0 6px;
+
+                font-size: 16px;
             }
 
-            .kw-muted {
-                color: var(--kw-text-secondary);
+            .km-muted {
+                color:
+                    var(--km-muted);
+
                 font-size: 13px;
             }
 
-            .kw-button {
-                border: 0;
-                border-radius: 9px;
+            .km-grid {
+                display: grid;
 
-                padding: 9px 13px;
+                grid-template-columns:
+                    repeat(
+                        2,
+                        minmax(0, 1fr)
+                    );
 
-                background: var(--kw-accent);
-                color: white;
-
-                cursor: pointer;
-                font-weight: 650;
-            }
-
-            .kw-button:hover {
-                background: var(--kw-accent-hover);
-            }
-
-            .kw-button.secondary {
-                background: var(--kw-bg-secondary);
-                color: var(--kw-text);
-            }
-
-            .kw-row {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
                 gap: 10px;
             }
 
-            .kw-setting {
-                padding: 13px 0;
-                border-bottom: 1px solid var(--kw-border);
+            .km-stat {
+                padding: 14px;
+
+                border-radius: 12px;
+
+                background:
+                    var(--km-panel);
             }
 
-            .kw-setting:last-child {
+            .km-stat strong {
+                display: block;
+
+                margin-top: 4px;
+
+                font-size: 20px;
+            }
+
+            .km-row {
+                display: flex;
+
+                align-items: center;
+
+                justify-content:
+                    space-between;
+
+                gap: 10px;
+            }
+
+            .km-buttons {
+                display: flex;
+
+                flex-wrap: wrap;
+
+                gap: 7px;
+            }
+
+            .km-btn {
+                border: 0;
+
+                border-radius: 9px;
+
+                padding:
+                    9px 12px;
+
+                background:
+                    var(--km-accent);
+
+                color: white;
+
+                cursor: pointer;
+
+                font: inherit;
+
+                font-weight: 700;
+            }
+
+            .km-btn:hover {
+                background:
+                    var(--km-accent-hover);
+            }
+
+            .km-btn.secondary {
+                background:
+                    var(--km-panel);
+
+                color:
+                    var(--km-text);
+            }
+
+            .km-btn.danger {
+                background:
+                    var(--km-danger);
+            }
+
+            .km-item {
+                padding:
+                    12px 0;
+
+                border-bottom:
+                    1px solid var(--km-border);
+            }
+
+            .km-item:last-child {
                 border-bottom: 0;
             }
 
-            .kw-switch {
+            .km-item-title {
+                font-weight: 700;
+
+                word-break:
+                    break-word;
+            }
+
+            .km-item-url {
+                margin-top: 4px;
+
+                color:
+                    var(--km-muted);
+
+                font-size: 11px;
+
+                word-break:
+                    break-all;
+            }
+
+            .km-setting {
+                padding:
+                    12px 0;
+
+                border-bottom:
+                    1px solid var(--km-border);
+            }
+
+            .km-setting:last-child {
+                border-bottom: 0;
+            }
+
+            .km-select {
+                padding: 8px;
+
+                border:
+                    1px solid var(--km-border);
+
+                border-radius: 8px;
+
+                background:
+                    var(--km-bg);
+
+                color:
+                    var(--km-text);
+            }
+
+            .km-toggle {
                 width: 42px;
                 height: 23px;
 
-                position: relative;
+                border: 0;
 
                 border-radius: 999px;
 
-                background: #9aa0a6;
+                background:
+                    #969da4;
 
                 cursor: pointer;
+
+                position: relative;
             }
 
-            .kw-switch::after {
+            .km-toggle::after {
                 content: "";
 
                 position: absolute;
@@ -658,142 +914,208 @@
 
                 border-radius: 50%;
 
-                background: white;
+                background: #fff;
 
-                transition: .18s;
+                transition:
+                    .16s;
             }
 
-            .kw-switch.kw-on {
-                background: var(--kw-accent);
+            .km-toggle.km-on {
+                background:
+                    var(--km-accent);
             }
 
-            .kw-switch.kw-on::after {
-                transform: translateX(19px);
+            .km-toggle.km-on::after {
+                transform:
+                    translateX(19px);
             }
 
-            .kw-progress {
-                height: 7px;
+            .km-empty {
+                padding:
+                    35px 10px;
 
-                margin-top: 12px;
+                text-align: center;
 
-                overflow: hidden;
-
-                border-radius: 999px;
-
-                background: var(--kw-bg-secondary);
+                color:
+                    var(--km-muted);
             }
 
-            .kw-progress > div {
-                height: 100%;
-                width: 0;
+            .km-diagnostic {
+                padding: 12px;
 
-                background: var(--kw-accent);
-            }
-
-            .kw-toast-container {
-                position: fixed;
-                left: 50%;
-                bottom: 22px;
-
-                z-index: 1000000;
-
-                transform: translateX(-50%);
-
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-
-                pointer-events: none;
-            }
-
-            .kw-toast {
-                max-width: min(450px, calc(100vw - 30px));
-
-                padding: 11px 15px;
+                overflow: auto;
 
                 border-radius: 10px;
 
-                background: #202124;
-                color: white;
+                background:
+                    var(--km-panel);
 
-                font-size: 13px;
+                font:
+                    12px/1.55
+                    ui-monospace,
+                    SFMono-Regular,
+                    Menlo,
+                    monospace;
+
+                white-space:
+                    pre-wrap;
+
+                word-break:
+                    break-word;
+            }
+
+            .km-focus {
+                text-align: center;
+
+                padding:
+                    28px 10px;
+            }
+
+            .km-focus-time {
+                margin:
+                    10px 0 20px;
+
+                font-size: 52px;
+
+                font-weight: 800;
+
+                letter-spacing: 2px;
+            }
+
+            #km-launcher {
+                position: fixed;
+
+                z-index: 2147482999;
+
+                right: 18px;
+                bottom: 18px;
+
+                width: 50px;
+                height: 50px;
+
+                border: 0;
+
+                border-radius: 50%;
+
+                background:
+                    #14a05a;
+
+                color: #fff;
+
+                cursor: pointer;
+
+                box-shadow:
+                    0 8px 25px rgba(0,0,0,.25);
+
+                font:
+                    800 20px system-ui;
+            }
+
+            .km-toast {
+                position: fixed;
+
+                z-index: 2147483647;
+
+                left: 50%;
+
+                bottom: 22px;
+
+                max-width:
+                    calc(100vw - 30px);
+
+                padding:
+                    11px 15px;
+
+                border-radius: 10px;
+
+                background:
+                    #202124;
+
+                color: #fff;
 
                 opacity: 0;
-                transform: translateY(8px);
+
+                transform:
+                    translate(-50%, 8px);
 
                 transition:
                     opacity .2s,
                     transform .2s;
+
+                pointer-events: none;
+
+                font:
+                    13px system-ui;
             }
 
-            .kw-toast-visible {
+            .km-toast-show {
                 opacity: 1;
-                transform: translateY(0);
+
+                transform:
+                    translate(-50%, 0);
             }
 
-            .kw-empty {
-                padding: 35px 15px;
-                text-align: center;
-                color: var(--kw-text-secondary);
+            .km-reduce-motion *,
+            .km-reduce-motion *::before,
+            .km-reduce-motion *::after {
+                transition:
+                    none !important;
+
+                animation:
+                    none !important;
             }
 
-            .kw-recommendation {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-            }
+            @media (max-width: 650px) {
+                #km-app {
+                    top: 8px;
+                    right: 8px;
 
-            .kw-recommendation-actions {
-                display: flex;
-                gap: 7px;
-            }
+                    width:
+                        calc(100vw - 16px);
 
-            .kw-diagnostic {
-                font-family: monospace;
-                font-size: 12px;
+                    height:
+                        calc(100vh - 16px);
 
-                padding: 10px;
-
-                border-radius: 9px;
-
-                background: var(--kw-bg-secondary);
-
-                overflow-x: auto;
-            }
-
-            @media(max-width: 650px) {
-                #kw-app {
-                    top: 10px;
-                    right: 10px;
-
-                    width: calc(100vw - 20px);
-                    height: calc(100vh - 20px);
-
-                    border-radius: 14px;
+                    border-radius:
+                        14px;
                 }
 
-                .kw-sidebar {
+                .km-sidebar {
                     width: 58px;
+
+                    flex-basis: 58px;
+
                     padding: 8px;
                 }
 
-                .kw-brand {
+                .km-brand {
                     text-align: center;
+
                     font-size: 0;
                 }
 
-                .kw-brand::before {
+                .km-brand::before {
                     content: "K";
+
                     font-size: 20px;
                 }
 
-                .kw-nav-button {
+                .km-nav {
+                    padding:
+                        10px 5px;
+
                     text-align: center;
+
                     font-size: 0;
                 }
 
-                .kw-nav-button::first-letter {
+                .km-nav::first-letter {
                     font-size: 18px;
+                }
+
+                .km-grid {
+                    grid-template-columns:
+                        1fr;
                 }
             }
         `;
@@ -801,4 +1123,1404 @@
         document.head.appendChild(style);
     }
 
-    /* ==================================
+    function buildUI() {
+        document.getElementById("km-app")?.remove();
+        document.getElementById("km-launcher")?.remove();
+
+        const launcher =
+            document.createElement("button");
+
+        launcher.id = "km-launcher";
+        launcher.title = "Abrir KhanMESSIAS";
+        launcher.textContent = "K";
+
+        launcher.addEventListener(
+            "click",
+            toggle
+        );
+
+        document.body.appendChild(launcher);
+
+        const app =
+            document.createElement("section");
+
+        app.id = "km-app";
+
+        app.setAttribute(
+            "aria-label",
+            "KhanMESSIAS"
+        );
+
+        app.innerHTML = `
+            <aside class="km-sidebar">
+
+                <div class="km-brand">
+                    Khan<b>MESSIAS</b>
+                </div>
+
+                <button
+                    class="km-nav km-active"
+                    data-page="dashboard">
+                    🏠 Painel
+                </button>
+
+                <button
+                    class="km-nav"
+                    data-page="recommendations">
+                    📚 Recomendações
+                </button>
+
+                <button
+                    class="km-nav"
+                    data-page="queue">
+                    📋 Fila
+                </button>
+
+                <button
+                    class="km-nav"
+                    data-page="focus">
+                    ⏱️ Foco
+                </button>
+
+                <button
+                    class="km-nav"
+                    data-page="accessibility">
+                    ♿ Acessibilidade
+                </button>
+
+                <div class="km-spacer"></div>
+
+                <button
+                    class="km-nav"
+                    data-page="settings">
+                    ⚙️ Configurações
+                </button>
+
+                <button
+                    class="km-nav"
+                    data-page="diagnostics">
+                    🧪 Diagnóstico
+                </button>
+
+            </aside>
+
+            <div class="km-main">
+
+                <header class="km-header">
+
+                    <div
+                        class="km-title"
+                        id="km-page-title">
+                        Painel
+                    </div>
+
+                    <div class="km-actions">
+
+                        <button
+                            class="km-icon"
+                            id="km-refresh"
+                            title="Atualizar">
+                            ↻
+                        </button>
+
+                        <button
+                            class="km-icon"
+                            id="km-close"
+                            title="Fechar">
+                            ×
+                        </button>
+
+                    </div>
+
+                </header>
+
+                <div
+                    class="km-content"
+                    id="km-content">
+                </div>
+
+            </div>
+        `;
+
+        document.body.appendChild(app);
+
+        app.querySelectorAll(".km-nav")
+            .forEach(button => {
+
+                button.addEventListener(
+                    "click",
+                    () => {
+
+                        state.page =
+                            button.dataset.page;
+
+                        renderCurrentPage();
+                    }
+                );
+            });
+
+        document
+            .getElementById("km-close")
+            .addEventListener(
+                "click",
+                close
+            );
+
+        document
+            .getElementById("km-refresh")
+            .addEventListener(
+                "click",
+                () => {
+                    renderCurrentPage();
+                    toast("Painel atualizado.");
+                }
+            );
+
+        Theme.apply();
+    }
+
+    function open() {
+        state.open = true;
+
+        document
+            .getElementById("km-app")
+            ?.classList.add("km-open");
+
+        renderCurrentPage();
+    }
+
+    function close() {
+        state.open = false;
+
+        document
+            .getElementById("km-app")
+            ?.classList.remove("km-open");
+    }
+
+    function toggle() {
+        state.open
+            ? close()
+            : open();
+    }
+
+    function setPageTitle(title) {
+        const el =
+            document.getElementById(
+                "km-page-title"
+            );
+
+        if (el) {
+            el.textContent = title;
+        }
+    }
+
+    function dashboardHTML() {
+        const links =
+            Adapter.getStudyLinks();
+
+        return `
+            <div class="km-card">
+
+                <h3>
+                    KhanMESSIAS ${VERSION}
+                </h3>
+
+                <div class="km-muted">
+                    Ferramentas de organização,
+                    navegação e produtividade.
+                </div>
+
+            </div>
+
+            <div class="km-grid">
+
+                <div class="km-stat">
+                    <span class="km-muted">
+                        Itens na fila
+                    </span>
+
+                    <strong>
+                        ${state.queue.length}
+                    </strong>
+                </div>
+
+                <div class="km-stat">
+                    <span class="km-muted">
+                        Links de estudo encontrados
+                    </span>
+
+                    <strong>
+                        ${links.length}
+                    </strong>
+                </div>
+
+                <div class="km-stat">
+                    <span class="km-muted">
+                        Página atual
+                    </span>
+
+                    <strong>
+                        ${escapeHTML(
+                            document.title
+                        ).slice(0, 30)}
+                    </strong>
+                </div>
+
+                <div class="km-stat">
+                    <span class="km-muted">
+                        Versão
+                    </span>
+
+                    <strong>
+                        ${VERSION}
+                    </strong>
+                </div>
+
+            </div>
+
+            <div class="km-card">
+
+                <h3>
+                    Ações rápidas
+                </h3>
+
+                <div class="km-buttons">
+
+                    <button
+                        class="km-btn"
+                        data-action="recommendations">
+                        Ver recomendações
+                    </button>
+
+                    <button
+                        class="km-btn secondary"
+                        data-action="next">
+                        Abrir próximo da fila
+                    </button>
+
+                    <button
+                        class="km-btn secondary"
+                        data-action="focus">
+                        Modo foco
+                    </button>
+
+                </div>
+
+            </div>
+
+            <div class="km-card">
+
+                <h3>
+                    Página detectada
+                </h3>
+
+                <div class="km-muted">
+                    ${escapeHTML(
+                        location.href
+                    )}
+                </div>
+
+            </div>
+        `;
+    }
+
+    function recommendationsHTML() {
+        if (!features.recommendations) {
+            return `
+                <div class="km-empty">
+                    Recomendações desativadas.
+                </div>
+            `;
+        }
+
+        const items =
+            Adapter.getStudyLinks();
+
+        if (!items.length) {
+            return `
+                <div class="km-empty">
+                    Nenhum link de estudo foi
+                    encontrado na parte visível
+                    da página.
+
+                    <br><br>
+
+                    Navegue até uma área de
+                    curso/exercício e atualize
+                    este painel.
+                </div>
+            `;
+        }
+
+        return items
+            .map(
+                (item, index) => `
+                    <div class="km-item">
+
+                        <div class="km-item-title">
+                            ${index + 1}.
+                            ${escapeHTML(item.title)}
+                        </div>
+
+                        <div class="km-item-url">
+                            ${escapeHTML(item.url)}
+                        </div>
+
+                        <div
+                            class="km-buttons"
+                            style="margin-top:9px">
+
+                            <button
+                                class="km-btn"
+                                data-open-url="${encodeURIComponent(
+                                    item.url
+                                )}">
+                                Abrir
+                            </button>
+
+                            <button
+                                class="km-btn secondary"
+                                data-add-url="${encodeURIComponent(
+                                    item.url
+                                )}"
+                                data-add-title="${encodeURIComponent(
+                                    item.title
+                                )}">
+                                Adicionar à fila
+                            </button>
+
+                        </div>
+
+                    </div>
+                `
+            )
+            .join("");
+    }
+
+    function queueHTML() {
+        if (!state.queue.length) {
+            return `
+                <div class="km-empty">
+
+                    Sua fila está vazia.
+
+                    <br><br>
+
+                    Adicione itens na aba
+                    Recomendações.
+
+                </div>
+            `;
+        }
+
+        return `
+            <div class="km-card">
+
+                <div class="km-row">
+
+                    <div>
+
+                        <h3 style="margin:0">
+                            Fila de estudos
+                        </h3>
+
+                        <div class="km-muted">
+                            ${state.queue.length}
+                            item(ns)
+                        </div>
+
+                    </div>
+
+                    <button
+                        class="km-btn danger"
+                        data-action="clear-queue">
+                        Limpar
+                    </button>
+
+                </div>
+
+            </div>
+
+            ${state.queue
+                .map(
+                    (item, index) => `
+                        <div class="km-item">
+
+                            <div
+                                class="km-item-title">
+                                ${index + 1}.
+                                ${escapeHTML(
+                                    item.title
+                                )}
+                            </div>
+
+                            <div
+                                class="km-item-url">
+                                ${escapeHTML(
+                                    item.url
+                                )}
+                            </div>
+
+                            <div
+                                class="km-buttons"
+                                style="margin-top:9px">
+
+                                <button
+                                    class="km-btn"
+                                    data-open-queue="${index}">
+                                    Abrir
+                                </button>
+
+                                <button
+                                    class="km-btn secondary"
+                                    data-remove-queue="${index}">
+                                    Remover
+                                </button>
+
+                            </div>
+
+                        </div>
+                    `
+                )
+                .join("")}
+        `;
+    }
+
+    function focusHTML() {
+        const mins =
+            Math.floor(
+                state.focusSeconds / 60
+            )
+                .toString()
+                .padStart(2, "0");
+
+        const secs =
+            (
+                state.focusSeconds % 60
+            )
+                .toString()
+                .padStart(2, "0");
+
+        return `
+            <div class="km-card km-focus">
+
+                <h3>
+                    Modo foco
+                </h3>
+
+                <div class="km-muted">
+                    Cronômetro local para
+                    organizar sua sessão de estudo.
+                </div>
+
+                <div class="km-focus-time">
+                    ${mins}:${secs}
+                </div>
+
+                <div
+                    class="km-buttons"
+                    style="justify-content:center">
+
+                    <button
+                        class="km-btn"
+                        data-action="focus-toggle">
+
+                        ${
+                            state.focusTimer
+                                ? "Pausar"
+                                : "Iniciar"
+                        }
+
+                    </button>
+
+                    <button
+                        class="km-btn secondary"
+                        data-action="focus-reset">
+                        Zerar
+                    </button>
+
+                </div>
+
+            </div>
+        `;
+    }
+
+    function toggleSetting(
+        key,
+        label,
+        description
+    ) {
+        const value =
+            !!state.settings[key];
+
+        return `
+            <div class="km-setting">
+
+                <div class="km-row">
+
+                    <div>
+
+                        <strong>
+                            ${escapeHTML(label)}
+                        </strong>
+
+                        <div class="km-muted">
+                            ${escapeHTML(
+                                description
+                            )}
+                        </div>
+
+                    </div>
+
+                    <button
+                        class="km-toggle ${
+                            value ? "km-on" : ""
+                        }"
+                        data-toggle-setting="${key}"
+                        aria-label="${escapeHTML(
+                            label
+                        )}">
+                    </button>
+
+                </div>
+
+            </div>
+        `;
+    }
+
+    function settingsHTML() {
+        return `
+            <div class="km-card">
+
+                <h3>
+                    Configurações
+                </h3>
+
+                <div class="km-setting">
+
+                    <div class="km-row">
+
+                        <div>
+
+                            <strong>
+                                Tema
+                            </strong>
+
+                            <div class="km-muted">
+                                Escolha a aparência
+                                do menu.
+                            </div>
+
+                        </div>
+
+                        <select
+                            class="km-select"
+                            id="km-theme">
+
+                            <option
+                                value="system"
+                                ${
+                                    state.settings.theme ===
+                                    "system"
+                                        ? "selected"
+                                        : ""
+                                }>
+                                Sistema
+                            </option>
+
+                            <option
+                                value="light"
+                                ${
+                                    state.settings.theme ===
+                                    "light"
+                                        ? "selected"
+                                        : ""
+                                }>
+                                Claro
+                            </option>
+
+                            <option
+                                value="dark"
+                                ${
+                                    state.settings.theme ===
+                                    "dark"
+                                        ? "selected"
+                                        : ""
+                                }>
+                                Escuro
+                            </option>
+
+                        </select>
+
+                    </div>
+
+                </div>
+
+                ${toggleSetting(
+                    "compact",
+                    "Modo compacto",
+                    "Reduz o tamanho do painel."
+                )}
+
+                ${toggleSetting(
+                    "notifications",
+                    "Notificações",
+                    "Mostra mensagens do KhanMESSIAS."
+                )}
+
+                ${toggleSetting(
+                    "recommendations",
+                    "Recomendações",
+                    "Permite detectar links de estudo na página."
+                )}
+
+                ${toggleSetting(
+                    "autoRefresh",
+                    "Atualização automática",
+                    "Atualiza a interface quando a página muda."
+                )}
+
+            </div>
+
+            <div class="km-card">
+
+                <h3>
+                    Dados locais
+                </h3>
+
+                <div class="km-muted">
+                    Configurações e fila ficam salvas
+                    no armazenamento local deste navegador.
+                </div>
+
+                <div
+                    class="km-buttons"
+                    style="margin-top:12px">
+
+                    <button
+                        class="km-btn danger"
+                        data-action="reset">
+                        Restaurar configurações
+                    </button>
+
+                </div>
+
+            </div>
+        `;
+    }
+
+    function accessibilityHTML() {
+        return `
+            <div class="km-card">
+
+                <h3>
+                    Acessibilidade
+                </h3>
+
+                ${toggleSetting(
+                    "largeText",
+                    "Texto maior",
+                    "Aumenta o tamanho do texto do menu."
+                )}
+
+                ${toggleSetting(
+                    "reduceMotion",
+                    "Reduzir movimento",
+                    "Diminui transições e animações."
+                )}
+
+            </div>
+        `;
+    }
+
+    function diagnosticsHTML() {
+        const links =
+            Adapter.getStudyLinks();
+
+        return `
+            <div class="km-card">
+
+                <h3>
+                    Diagnóstico
+                </h3>
+
+                <div class="km-diagnostic">
+${escapeHTML(
+    JSON.stringify(
+        {
+            version: VERSION,
+            url: location.href,
+            title: document.title,
+            language: navigator.language,
+            mobile:
+                /Android|iPhone|iPad|Mobile/i
+                    .test(
+                        navigator.userAgent
+                    ),
+            viewport:
+                `${innerWidth}x${innerHeight}`,
+            navigationFound:
+                !!Adapter.getNavigation(),
+            mainFound:
+                !!Adapter.getMain(),
+            studyLinks:
+                links.length,
+            queueItems:
+                state.queue.length,
+            observer:
+                !!state.observer,
+            instance: true
+        },
+        null,
+        2
+    )
+)}
+                </div>
+
+            </div>
+        `;
+    }
+
+    function renderCurrentPage() {
+        const content =
+            document.getElementById(
+                "km-content"
+            );
+
+        const app =
+            document.getElementById(
+                "km-app"
+            );
+
+        if (!content || !app) {
+            return;
+        }
+
+        const titles = {
+            dashboard: "Painel",
+            recommendations: "Recomendações",
+            queue: "Fila de estudos",
+            focus: "Modo foco",
+            accessibility: "Acessibilidade",
+            settings: "Configurações",
+            diagnostics: "Diagnóstico"
+        };
+
+        setPageTitle(
+            titles[state.page] ||
+            "Painel"
+        );
+
+        app.querySelectorAll(
+            ".km-nav"
+        ).forEach(button => {
+            button.classList.toggle(
+                "km-active",
+                button.dataset.page ===
+                    state.page
+            );
+        });
+
+        if (
+            state.page ===
+            "dashboard"
+        ) {
+            content.innerHTML =
+                dashboardHTML();
+        }
+
+        if (
+            state.page ===
+            "recommendations"
+        ) {
+            content.innerHTML =
+                recommendationsHTML();
+        }
+
+        if (
+            state.page ===
+            "queue"
+        ) {
+            content.innerHTML =
+                queueHTML();
+        }
+
+        if (
+            state.page ===
+            "focus"
+        ) {
+            content.innerHTML =
+                focusHTML();
+        }
+
+        if (
+            state.page ===
+            "accessibility"
+        ) {
+            content.innerHTML =
+                accessibilityHTML();
+        }
+
+        if (
+            state.page ===
+            "settings"
+        ) {
+            content.innerHTML =
+                settingsHTML();
+        }
+
+        if (
+            state.page ===
+            "diagnostics"
+        ) {
+            content.innerHTML =
+                diagnosticsHTML();
+        }
+
+        bindContentEvents();
+
+        Theme.apply();
+    }
+
+    function bindContentEvents() {
+        document
+            .querySelectorAll(
+                "[data-action]"
+            )
+            .forEach(el => {
+
+                el.addEventListener(
+                    "click",
+                    () => {
+
+                        const action =
+                            el.dataset.action;
+
+                        if (
+                            action ===
+                            "recommendations"
+                        ) {
+                            state.page =
+                                "recommendations";
+
+                            renderCurrentPage();
+                        }
+
+                        if (
+                            action ===
+                            "next"
+                        ) {
+                            Queue.next();
+                        }
+
+                        if (
+                            action ===
+                            "focus"
+                        ) {
+                            state.page =
+                                "focus";
+
+                            renderCurrentPage();
+                        }
+
+                        if (
+                            action ===
+                            "clear-queue"
+                        ) {
+                            Queue.clear();
+                        }
+
+                        if (
+                            action ===
+                            "focus-toggle"
+                        ) {
+                            toggleFocus();
+                        }
+
+                        if (
+                            action ===
+                            "focus-reset"
+                        ) {
+                            stopFocus();
+
+                            state.focusSeconds =
+                                0;
+
+                            renderCurrentPage();
+                        }
+
+                        if (
+                            action ===
+                            "reset"
+                        ) {
+                            if (
+                                confirm(
+                                    "Restaurar as configurações do KhanMESSIAS?"
+                                )
+                            ) {
+                                localStorage.removeItem(
+                                    STORAGE_KEY
+                                );
+
+                                localStorage.removeItem(
+                                    QUEUE_KEY
+                                );
+
+                                location.reload();
+                            }
+                        }
+                    }
+                );
+            });
+
+        document
+            .querySelectorAll(
+                "[data-open-url]"
+            )
+            .forEach(el => {
+
+                el.addEventListener(
+                    "click",
+                    () => {
+
+                        try {
+                            location.href =
+                                decodeURIComponent(
+                                    el.dataset.openUrl
+                                );
+                        } catch (_) {}
+                    }
+                );
+            });
+
+        document
+            .querySelectorAll(
+                "[data-add-url]"
+            )
+            .forEach(el => {
+
+                el.addEventListener(
+                    "click",
+                    () => {
+
+                        Queue.add({
+                            url:
+                                decodeURIComponent(
+                                    el.dataset.addUrl
+                                ),
+
+                            title:
+                                decodeURIComponent(
+                                    el.dataset.addTitle
+                                )
+                        });
+                    }
+                );
+            });
+
+        document
+            .querySelectorAll(
+                "[data-open-queue]"
+            )
+            .forEach(el => {
+
+                el.addEventListener(
+                    "click",
+                    () => {
+
+                        const index =
+                            Number(
+                                el.dataset.openQueue
+                            );
+
+                        const item =
+                            state.queue[index];
+
+                        if (!item) {
+                            return;
+                        }
+
+                        location.href =
+                            item.url;
+                    }
+                );
+            });
+
+        document
+            .querySelectorAll(
+                "[data-remove-queue]"
+            )
+            .forEach(el => {
+
+                el.addEventListener(
+                    "click",
+                    () => {
+
+                        Queue.remove(
+                            Number(
+                                el.dataset.removeQueue
+                            )
+                        );
+                    }
+                );
+            });
+
+        document
+            .querySelectorAll(
+                "[data-toggle-setting]"
+            )
+            .forEach(el => {
+
+                el.addEventListener(
+                    "click",
+                    () => {
+
+                        const key =
+                            el.dataset.toggleSetting;
+
+                        state.settings[key] =
+                            !state.settings[key];
+
+                        saveSettings();
+
+                        Theme.apply();
+
+                        renderCurrentPage();
+                    }
+                );
+            });
+
+        const theme =
+            document.getElementById(
+                "km-theme"
+            );
+
+        if (theme) {
+            theme.addEventListener(
+                "change",
+                () => {
+
+                    state.settings.theme =
+                        theme.value;
+
+                    saveSettings();
+
+                    Theme.apply();
+                }
+            );
+        }
+    }
+
+    function toggleFocus() {
+        if (state.focusTimer) {
+            stopFocus();
+            renderCurrentPage();
+            return;
+        }
+
+        state.focusTimer = true;
+
+        state.focusTimerId =
+            setInterval(() => {
+
+                if (!state.focusTimer) {
+                    return;
+                }
+
+                state.focusSeconds++;
+
+                if (
+                    state.page === "focus" &&
+                    state.open
+                ) {
+                    renderCurrentPage();
+                }
+
+            }, 1000);
+
+        renderCurrentPage();
+
+        toast("Modo foco iniciado.");
+    }
+
+    function stopFocus() {
+        state.focusTimer = false;
+
+        if (state.focusTimerId) {
+            clearInterval(
+                state.focusTimerId
+            );
+
+            state.focusTimerId = null;
+        }
+    }
+
+    function installKeyboard() {
+        if (state.keyboardHandler) {
+            document.removeEventListener(
+                "keydown",
+                state.keyboardHandler,
+                true
+            );
+        }
+
+        state.keyboardHandler =
+            event => {
+
+                const tag =
+                    event.target?.tagName;
+
+                const editing =
+                    tag === "INPUT" ||
+                    tag === "TEXTAREA" ||
+                    tag === "SELECT" ||
+                    event.target?.isContentEditable;
+
+                if (editing) {
+                    return;
+                }
+
+                if (
+                    event.ctrlKey &&
+                    event.shiftKey &&
+                    event.key.toLowerCase() ===
+                        "k"
+                ) {
+                    event.preventDefault();
+
+                    toggle();
+                }
+
+                if (
+                    event.key === "Escape" &&
+                    state.open
+                ) {
+                    close();
+                }
+            };
+
+        document.addEventListener(
+            "keydown",
+            state.keyboardHandler,
+            true
+        );
+    }
+
+    function installObserver() {
+        if (!state.settings.autoRefresh) {
+            return;
+        }
+
+        state.observer?.disconnect();
+
+        let scheduled = false;
+
+        state.observer =
+            new MutationObserver(() => {
+
+                if (
+                    !state.open ||
+                    scheduled
+                ) {
+                    return;
+                }
+
+                scheduled = true;
+
+                setTimeout(() => {
+
+                    scheduled = false;
+
+                    if (
+                        state.page ===
+                            "recommendations" ||
+                        state.page ===
+                            "dashboard"
+                    ) {
+                        renderCurrentPage();
+                    }
+
+                }, 700);
+            });
+
+        state.observer.observe(
+            document.body,
+            {
+                childList: true,
+                subtree: true
+            }
+        );
+    }
+
+    function installRouteWatcher() {
+        clearInterval(
+            state.routeTimer
+        );
+
+        state.routeTimer =
+            setInterval(() => {
+
+                if (
+                    location.href ===
+                    state.lastUrl
+                ) {
+                    return;
+                }
+
+                state.lastUrl =
+                    location.href;
+
+                if (state.open) {
+                    setTimeout(
+                        renderCurrentPage,
+                        500
+                    );
+                }
+
+            }, 500);
+    }
+
+    function installSystemThemeWatcher() {
+        const media =
+            matchMedia(
+                "(prefers-color-scheme: dark)"
+            );
+
+        state.themeHandler =
+            () => {
+
+                if (
+                    state.settings.theme ===
+                    "system"
+                ) {
+                    Theme.apply();
+                }
+            };
+
+        media.addEventListener?.(
+            "change",
+            state.themeHandler
+        );
+    }
+
+    function destroy() {
+        state.destroyed = true;
+
+        state.observer?.disconnect();
+
+        clearInterval(
+            state.routeTimer
+        );
+
+        stopFocus();
+
+        if (state.keyboardHandler) {
+            document.removeEventListener(
+                "keydown",
+                state.keyboardHandler,
+                true
+            );
+        }
+
+        document
+            .getElementById("km-app")
+            ?.remove();
+
+        document
+            .getElementById("km-launcher")
+            ?.remove();
+
+        document
+            .getElementById("km-style")
+            ?.remove();
+
+        window[INSTANCE_KEY] = null;
+    }
+
+    function setup() {
+        try {
+            loadSettings();
+
+            injectStyles();
+
+            buildUI();
+
+            installKeyboard();
+
+            installObserver();
+
+            installRouteWatcher();
+
+            installSystemThemeWatcher();
+
+            window[INSTANCE_KEY] = {
+                destroy
+            };
+
+            window.KhanMESSIAS = {
+                version: VERSION,
+
+                features,
+
+                settings:
+                    state.settings,
+
+                Adapter,
+
+                Queue,
+
+                open,
+
+                close,
+
+                toggle,
+
+                refresh:
+                    renderCurrentPage,
+
+                destroy
+            };
+
+            window.__KhanMESSIAS_LOADED__ =
+                true;
+
+            setTimeout(() => {
+                toast(
+                    `KhanMESSIAS ${VERSION} carregado.`
+                );
+            }, 250);
+
+            log(
+                "Inicializado com sucesso."
+            );
+
+        } catch (e) {
+
+            error(
+                "Falha durante a inicialização.",
+                e
+            );
+
+            window.__KhanMESSIAS_LOADED__ =
+                false;
+
+            toast(
+                "KhanMESSIAS encontrou um erro ao iniciar."
+            );
+        }
+    }
+
+    if (
+        document.readyState ===
+        "loading"
+    ) {
+        document.addEventListener(
+            "DOMContentLoaded",
+            setup,
+            { once: true }
+        );
+    } else {
+        setup();
+    }
+
+})();
