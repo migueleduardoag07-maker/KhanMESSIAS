@@ -2,211 +2,155 @@
     "use strict";
 
     if (window.KHANMESSIAS_RUNNING) {
-        alert("KhanMESSIAS já está ativo. Recarregue a página para reiniciar.");
+        alert("KhanMESSIAS já está ativo");
         return;
     }
     window.KHANMESSIAS_RUNNING = true;
 
-    // ==========================================
-    // 1. INTERFACE GRÁFICA (UI)
-    // ==========================================
+    const state = {
+        analyzing: false
+    };
+
     const style = document.createElement("style");
     style.textContent = `
-        #km-panel {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
-            width: 90%; max-width: 420px; background: rgba(15, 15, 15, 0.95);
-            backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px;
-            padding: 25px; color: #fff; font-family: -apple-system, sans-serif;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8); z-index: 9999999;
-            display: none; flex-direction: column; gap: 15px; opacity: 0;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            max-height: 80vh; overflow-y: auto;
+        #km-button {
+            position: fixed; right: 20px; bottom: 20px; width: 60px; height: 60px;
+            border-radius: 50%; border: none; background: #171717; color: white;
+            font-size: 28px; z-index: 999999; cursor: pointer;
         }
-        #km-panel.show { display: flex; opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        #km-title { font-size: 18px; font-weight: 700; text-align: center; color: #4facfe; margin-bottom: 5px; }
+        #km-menu {
+            position: fixed; right: 20px; bottom: 90px; width: 260px; background: #222;
+            color: white; padding: 15px; border-radius: 15px; display: none;
+            z-index: 999999; font-family: Arial;
+        }
         .km-btn {
-            width: 100%; padding: 14px; border: none; border-radius: 10px;
-            background: linear-gradient(135deg, #00f2fe, #4facfe); color: #000;
-            font-weight: 800; font-size: 15px; cursor: pointer; transition: 0.2s;
+            width: 100%; padding: 10px; margin-top: 10px; border: none;
+            border-radius: 8px; cursor: pointer; font-weight: bold;
         }
-        .km-btn:active { transform: scale(0.97); }
-        .km-log {
-            background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px;
-            font-family: monospace; font-size: 11px; color: #00ff00;
-            word-wrap: break-word; white-space: pre-wrap; max-height: 100px; overflow-y: auto;
-        }
-        #km-result {
-            background: rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 15px;
-            font-size: 14px; line-height: 1.5; display: none; border-left: 4px solid #4facfe;
-        }
-        #km-close {
-            position: absolute; top: 15px; right: 15px; background: none; border: none;
-            color: #888; font-size: 24px; cursor: pointer;
+        #km-resposta {
+            margin-top: 15px; padding: 10px; background: #333; border-radius: 8px;
+            color: #00ff00; font-size: 14px; display: none; word-wrap: break-word;
         }
     `;
     document.head.appendChild(style);
 
-    const panel = document.createElement("div");
-    panel.id = "km-panel";
-    panel.innerHTML = `
-        <button id="km-close">×</button>
-        <div id="km-title">🤖 KhanMESSIAS v2.0 (Automated)</div>
-        <button class="km-btn" id="km-analyze">Escanear Tudo e Resolver</button>
-        <div id="km-log-container" style="display:none;">
-            <div style="font-size:12px; color:#aaa; margin-bottom:5px;">🔍 Log de Varredura:</div>
-            <div class="km-log" id="km-log"></div>
-        </div>
-        <div id="km-result"></div>
+    const button = document.createElement("button");
+    button.id = "km-button";
+    button.textContent = "🍷";
+
+    const menu = document.createElement("div");
+    menu.id = "km-menu";
+    menu.innerHTML = `
+        <h3 style="margin: 0 0 10px 0; text-align: center;">KhanMESSIAS</h3>
+        <button class="km-btn" id="analisar">Analisar página 100% OFF</button>
+        <div id="extra"></div>
+        <div id="km-resposta"></div>
     `;
-    document.body.appendChild(panel);
 
-    const btnFlutuante = document.createElement("button");
-    btnFlutuante.textContent = "🤖";
-    btnFlutuante.style.cssText = `
-        position: fixed; right: 20px; bottom: 20px; width: 60px; height: 60px;
-        border-radius: 50%; border: none; background: #000; color: white;
-        font-size: 28px; z-index: 9999998; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-        border: 2px solid #4facfe; display: flex; align-items: center; justify-content: center;
-    `;
-    btnFlutuante.onclick = () => panel.classList.add("show");
-    document.body.appendChild(btnFlutuante);
-    document.getElementById("km-close").onclick = () => panel.classList.remove("show");
+    document.body.appendChild(button);
+    document.body.appendChild(menu);
 
-    // ==========================================
-    // 2. MOTOR DE VARREDURA (DOM SCRAPER)
-    // ==========================================
-    const escanearPagina = () => {
-        let textoCompleto = document.body.innerText || "";
-        
-        // Extrair textos escondidos dentro de fórmulas matemáticas (KaTeX)
-        document.querySelectorAll('.katex-mathml annotation').forEach(el => {
-            textoCompleto += " " + el.textContent;
-        });
-
-        // Extrair atributos ALT de imagens (muitas vezes contém dados vitais da questão)
-        let dadosImagens = [];
-        document.querySelectorAll('img').forEach(img => {
-            if (img.alt) dadosImagens.push(img.alt);
-        });
-
-        const url = window.location.href;
-
-        // Normalização agressiva (remove espaços duplos e quebras)
-        const textoNormalizado = (textoCompleto + " " + dadosImagens.join(" ")).replace(/\s+/g, ' ').toLowerCase();
-
-        return { texto: textoNormalizado, url: url, imagens: dadosImagens };
+    button.onclick = () => {
+        menu.style.display = menu.style.display === "block" ? "none" : "block";
     };
 
-    const parseVal = (regex, texto) => {
-        const match = texto.match(regex);
-        return match ? parseFloat(match[1].replace(/\./g, '').replace(',', '.')) : null;
-    };
-
-    // ==========================================
-    // 3. BANCO DE DADOS DE RESOLUÇÕES (VERSATILIDADE)
-    // ==========================================
-    // Aqui você adiciona novas lógicas para tipos diferentes de questões.
-    const Solucionadores = [
-        {
-            nome: "Sistema: Pacotes de Viagem (Econômico, Conforto, Luxo)",
-            // Condição para ativar esta lógica (se estas palavras estiverem na tela)
-            identificar: (dados) => dados.texto.includes("pacote econômico") && dados.texto.includes("luxo"),
-            resolver: (dados) => {
-                const txt = dados.texto;
-                const pEco = parseVal(/econ[ôo]mico.*?r\$\s*([\d\.,]+)/, txt);
-                const pConf = parseVal(/conforto.*?r\$\s*([\d\.,]+)/, txt);
-                const pLuxo = parseVal(/luxo.*?r\$\s*([\d\.,]+)/, txt);
-                const totalArrecadado = parseVal(/arrecadad[oa]s?.*?r\$\s*([\d\.,]+)/, txt);
-                
-                const matchPacotes = txt.match(/vendidos.*?(\d+).*?pacotes/) || txt.match(/(\d+)\s+pacotes/);
-                const pacotes = matchPacotes ? parseInt(matchPacotes[1]) : null;
-
-                if (!pEco || !pConf || !pLuxo || !pacotes || !totalArrecadado) {
-                    return { sucesso: false, erro: "Valores incompletos para esta fórmula." };
-                }
-
-                const denominador = (2 * pConf) + pLuxo - (3 * pEco);
-                const numerador = totalArrecadado - (pEco * pacotes);
-                
-                const L = Math.round(numerador / denominador);
-                const C = Math.round(2 * L);
-                const E = Math.round(pacotes - 3 * L);
-
-                return {
-                    sucesso: true,
-                    resposta: `Foram vendidos <b>${C}</b> pacotes conforto.`,
-                    detalhes: `E=${E}, C=${C}, L=${L} | Total Arrecadado: R$${totalArrecadado}`
-                };
-            }
-        },
-        {
-            nome: "Teorema de Pitágoras Básico (Exemplo de Versatilidade)",
-            identificar: (dados) => dados.texto.includes("hipotenusa") && dados.texto.includes("cateto"),
-            resolver: (dados) => {
-                // Regex genérico para pegar números próximos à palavra cateto
-                const catetos = [...dados.texto.matchAll(/cateto.*?(\d+)/g)].map(m => parseFloat(m[1]));
-                if (catetos.length >= 2) {
-                    const hipotenusa = Math.sqrt((catetos[0]**2) + (catetos[1]**2));
-                    return { sucesso: true, resposta: `A hipotenusa é <b>${hipotenusa.toFixed(2)}</b>`, detalhes: `Catetos: ${catetos[0]} e ${catetos[1]}` };
-                }
-                return { sucesso: false, erro: "Não localizei os dois catetos." };
-            }
+    // Função central que conecta com a I.A (OpenAI)
+    async function obterRespostaIA(textoDaPagina) {
+        let apiKey = localStorage.getItem("km_api_key");
+        if (!apiKey) {
+            apiKey = prompt("Insira sua chave de API da OpenAI (ChatGPT) para buscar respostas:");
+            if (!apiKey) return;
+            localStorage.setItem("km_api_key", apiKey);
         }
-        // ADICIONE NOVOS BLOCOS AQUI conforme encontra novos tipos de questões
-    ];
 
-    // ==========================================
-    // 4. CONTROLADOR PRINCIPAL
-    // ==========================================
-    document.getElementById("km-analyze").onclick = () => {
-        const resultDiv = document.getElementById("km-result");
-        const logContainer = document.getElementById("km-log-container");
-        const logDiv = document.getElementById("km-log");
-        
-        logContainer.style.display = "block";
-        resultDiv.style.display = "none";
-        logDiv.innerHTML = "Escanando URL, Imagens e Elementos Ocultos...\n";
+        const respostaDiv = document.querySelector("#km-resposta");
+        respostaDiv.style.display = "block";
+        respostaDiv.textContent = "⏳ Analisando com I.A...";
 
-        setTimeout(() => {
-            const dadosPagina = escanearPagina();
-            logDiv.innerHTML += `URL: ${dadosPagina.url.substring(0, 40)}...\n`;
-            logDiv.innerHTML += `Caracteres lidos: ${dadosPagina.texto.length}\n`;
-            logDiv.innerHTML += `Imagens lidas: ${dadosPagina.imagens.length}\n`;
+        try {
+            // Extrai também o texto matemático do KaTeX, essencial para o Khan Academy
+            let textoMatematico = "";
+            document.querySelectorAll('.katex-mathml annotation').forEach(el => {
+                textoMatematico += " " + el.textContent;
+            });
             
-            let questaoIdentificada = false;
+            const textoFinal = (textoDaPagina + "\n" + textoMatematico).slice(0, 3500); // Limite de leitura
 
-            // Testa a página contra todos os solucionadores cadastrados
-            for (let solucionador of Solucionadores) {
-                if (solucionador.identificar(dadosPagina)) {
-                    questaoIdentificada = true;
-                    logDiv.innerHTML += `\n>> Padrão Detectado: [${solucionador.nome}]`;
-                    
-                    const resultado = solucionador.resolver(dadosPagina);
-                    
-                    resultDiv.style.display = "block";
-                    if (resultado.sucesso) {
-                        resultDiv.style.borderLeft = "4px solid #00ff00";
-                        resultDiv.innerHTML = `
-                            <strong>✅ Questão Resolvida!</strong><br><br>
-                            🧠 <b>Lógica:</b> ${solucionador.nome}<br>
-                            📊 <b>Extraído:</b> ${resultado.detalhes}<br><br>
-                            🎯 <b>Resposta:</b><br><span style="font-size:18px;">${resultado.resposta}</span>
-                        `;
-                    } else {
-                        resultDiv.style.borderLeft = "4px solid #ff9800";
-                        resultDiv.innerHTML = `⚠️ Padrão reconhecido, mas falhou na extração: ${resultado.erro}`;
-                    }
-                    break; // Para no primeiro padrão encontrado
+            const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "Você é um resolvedor de questões focado em ser direto. O usuário enviará o texto bagunçado de uma página web contendo uma questão. Encontre a questão, resolva internamente, e retorne APENAS A RESPOSTA FINAL. Não explique como chegou lá, não use textos introdutórios. Diga apenas a resposta ou a alternativa correta."
+                        },
+                        {
+                            role: "user",
+                            content: textoFinal
+                        }
+                    ],
+                    temperature: 0.1
+                })
+            });
+
+            if (!response.ok) {
+                if(response.status === 401) {
+                    localStorage.removeItem("km_api_key");
+                    throw new Error("Chave de API inválida. Tente novamente.");
                 }
+                throw new Error("Erro na API: " + response.status);
             }
 
-            if (!questaoIdentificada) {
-                resultDiv.style.display = "block";
-                resultDiv.style.borderLeft = "4px solid #ff3333";
-                resultDiv.innerHTML = `❌ <b>Nenhum padrão conhecido encontrado.</b><br>O script leu a página, mas não sabe qual fórmula aplicar para este texto. Adicione esta questão ao banco de dados interno do script.`;
-            }
-        }, 800);
+            const data = await response.json();
+            respostaDiv.innerHTML = "🎯 <b>Resposta:</b><br>" + data.choices[0].message.content;
+
+        } catch (error) {
+            respostaDiv.innerHTML = "❌ <b>Erro:</b> " + error.message;
+        }
+    }
+
+    document.querySelector("#analisar").onclick = () => {
+        state.analyzing = !state.analyzing;
+        const btn = document.querySelector("#analisar");
+        const extra = document.querySelector("#extra");
+        const respostaDiv = document.querySelector("#km-resposta");
+
+        if (state.analyzing) {
+            btn.textContent = "Analisar página 100% ON";
+            btn.style.background = "#fff";
+            btn.style.color = "#000";
+
+            extra.innerHTML = `
+                <button class="km-btn" id="questao" style="background:#4facfe; color:#000;">
+                    Obter resposta com I.A
+                </button>
+                <button class="km-btn" id="limpar_api" style="background:#444; color:#fff; font-size:11px; padding:6px;">
+                    Redefinir API Key
+                </button>
+            `;
+
+            document.querySelector("#questao").onclick = () => {
+                const texto = document.body.innerText;
+                obterRespostaIA(texto);
+            };
+
+            document.querySelector("#limpar_api").onclick = () => {
+                localStorage.removeItem("km_api_key");
+                alert("Sua chave da OpenAI foi removida do navegador.");
+            };
+
+        } else {
+            btn.textContent = "Analisar página 100% OFF";
+            btn.style.background = "";
+            btn.style.color = "";
+            extra.innerHTML = "";
+            respostaDiv.style.display = "none";
+        }
     };
 
 })();
